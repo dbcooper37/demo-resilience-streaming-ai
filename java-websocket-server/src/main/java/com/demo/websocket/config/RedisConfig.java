@@ -42,6 +42,17 @@ public class RedisConfig {
     }
 
     @Bean
+    public RedisTemplate<String, com.demo.websocket.domain.ChatSession> sessionRedisTemplate(RedisConnectionFactory connectionFactory) {
+        RedisTemplate<String, com.demo.websocket.domain.ChatSession> template = new RedisTemplate<>();
+        template.setConnectionFactory(connectionFactory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(new StringRedisSerializer());
+        template.setHashKeySerializer(new StringRedisSerializer());
+        template.setHashValueSerializer(new StringRedisSerializer());
+        return template;
+    }
+
+    @Bean
     public RedisMessageListenerContainer redisMessageListenerContainer(
             RedisConnectionFactory connectionFactory,
             RedisMessageListener messageListener) {

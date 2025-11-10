@@ -3,6 +3,7 @@ package com.demo.websocket.infrastructure;
 import com.demo.websocket.domain.*;
 import com.demo.websocket.exception.MessageNotFoundException;
 import com.demo.websocket.exception.RecoveryException;
+import com.demo.websocket.repository.StreamChunkRepository;
 import com.demo.websocket.service.MetricsService;
 import com.demo.websocket.service.SimpleDistributedLockService;
 import io.micrometer.core.instrument.Tags;
@@ -23,6 +24,7 @@ public class RecoveryService {
 
     private final RedisStreamCache streamCache;
     private final MessageRepository messageRepository;
+    private final StreamChunkRepository streamChunkRepository;
     private final MetricsService metricsService;
     private final SimpleDistributedLockService lockService;
 
@@ -37,10 +39,12 @@ public class RecoveryService {
 
     public RecoveryService(RedisStreamCache streamCache,
                           MessageRepository messageRepository,
+                          StreamChunkRepository streamChunkRepository,
                           MetricsService metricsService,
                           SimpleDistributedLockService lockService) {
         this.streamCache = streamCache;
         this.messageRepository = messageRepository;
+        this.streamChunkRepository = streamChunkRepository;
         this.metricsService = metricsService;
         this.lockService = lockService;
     }
@@ -203,10 +207,36 @@ public class RecoveryService {
             // Get missing chunks from cache (primary source)
             List<StreamChunk> missingChunks = streamCache.getChunks(messageId, fromIndex, toIndex);
 
-            // If cache miss and database fallback enabled, try database
+            // Cache-Aside Pattern: If cache miss and database fallback enabled, try database
             if (missingChunks.isEmpty() && enableDatabaseFallback) {
-                log.info("Cache miss, falling back to database: messageId={}", messageId);
-                // TODO: Implement database fallback when StreamChunkRepository is available
+                log.info("Cache miss, falling back to database: messageId={}, range=[{},{})", 
+                    messageId, fromIndex, toIndex);
+                
+                try {
+                    // Query from database
+                    missingChunks = streamChunkRepository.findByMessageIdAndIndexBetween(
+                        messageId, fromIndex, toIndex);
+                    
+                    if (!missingChunks.isEmpty()) {
+                        log.info("Retrieved {} chunks from database: messageId={}", 
+                            missingChunks.size(), messageId);
+                        
+                        // Populate cache with database results (write-back to cache)
+                        for (StreamChunk chunk : missingChunks) {
+                            streamCache.appendChunk(messageId, chunk);
+                        }
+                        
+                        metricsService.incrementCounter("recovery.database_fallback_success");
+                    } else {
+                        log.warn("No chunks found in database: messageId={}, range=[{},{})", 
+                            messageId, fromIndex, toIndex);
+                        metricsService.incrementCounter("recovery.database_fallback_miss");
+                    }
+                } catch (Exception e) {
+                    log.error("Database fallback failed: messageId={}", messageId, e);
+                    metricsService.incrementCounter("recovery.database_fallback_error");
+                }
+                
                 metricsService.incrementCounter("recovery.database_fallback");
             }
 

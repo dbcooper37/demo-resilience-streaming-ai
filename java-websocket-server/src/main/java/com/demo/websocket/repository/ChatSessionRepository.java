@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Repository for ChatSession persistence
+ * Repository for ChatSession entities
  */
 @Repository
 public interface ChatSessionRepository extends JpaRepository<ChatSession, String> {
@@ -24,47 +24,52 @@ public interface ChatSessionRepository extends JpaRepository<ChatSession, String
     Optional<ChatSession> findBySessionId(String sessionId);
 
     /**
-     * Find active sessions by user ID
+     * Find sessions by conversation ID
+     */
+    @Query("SELECT cs FROM ChatSession cs " +
+           "WHERE cs.conversationId = :conversationId " +
+           "ORDER BY cs.startTime DESC")
+    List<ChatSession> findByConversationId(@Param("conversationId") String conversationId);
+
+    /**
+     * Find sessions by user ID
      */
     @Query("SELECT cs FROM ChatSession cs " +
            "WHERE cs.userId = :userId " +
-           "AND cs.status IN ('INITIALIZING', 'STREAMING')")
-    List<ChatSession> findActiveByUserId(@Param("userId") String userId);
+           "ORDER BY cs.startTime DESC")
+    List<ChatSession> findByUserId(@Param("userId") String userId);
+
+    /**
+     * Find active sessions (STREAMING status)
+     */
+    @Query("SELECT cs FROM ChatSession cs " +
+           "WHERE cs.status = 'STREAMING' " +
+           "AND cs.lastActivityTime > :threshold " +
+           "ORDER BY cs.lastActivityTime DESC")
+    List<ChatSession> findActiveSessions(@Param("threshold") Instant threshold);
 
     /**
      * Find sessions by status
      */
-    List<ChatSession> findByStatus(ChatSession.SessionStatus status);
-
-    /**
-     * Find expired sessions
-     */
     @Query("SELECT cs FROM ChatSession cs " +
-           "WHERE cs.lastActivityTime < :threshold " +
-           "AND cs.status IN ('INITIALIZING', 'STREAMING')")
-    List<ChatSession> findExpiredSessions(@Param("threshold") Instant threshold);
+           "WHERE cs.status = :status " +
+           "ORDER BY cs.startTime DESC")
+    List<ChatSession> findByStatus(@Param("status") ChatSession.SessionStatus status);
 
     /**
-     * Update session status
+     * Count sessions by user
      */
-    @Modifying
-    @Transactional
-    @Query("UPDATE ChatSession cs " +
-           "SET cs.status = :status, cs.lastActivityTime = :now " +
-           "WHERE cs.sessionId = :sessionId")
-    int updateSessionStatus(
-        @Param("sessionId") String sessionId,
-        @Param("status") ChatSession.SessionStatus status,
-        @Param("now") Instant now
-    );
+    @Query("SELECT COUNT(cs) FROM ChatSession cs " +
+           "WHERE cs.userId = :userId")
+    long countByUserId(@Param("userId") String userId);
 
     /**
-     * Delete old sessions (cleanup job)
+     * Delete old completed sessions
      */
     @Modifying
     @Transactional
     @Query("DELETE FROM ChatSession cs " +
-           "WHERE cs.lastActivityTime < :threshold " +
-           "AND cs.status IN ('COMPLETED', 'ERROR', 'TIMEOUT')")
+           "WHERE cs.status IN ('COMPLETED', 'ERROR', 'TIMEOUT') " +
+           "AND cs.lastActivityTime < :threshold")
     int deleteOldSessions(@Param("threshold") Instant threshold);
 }

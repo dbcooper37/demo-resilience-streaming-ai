@@ -1,5 +1,6 @@
 package com.demo.websocket.repository;
 
+import com.demo.websocket.domain.ConversationEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -11,7 +12,6 @@ import java.util.Optional;
 
 /**
  * Repository for Conversation entities
- * Note: Conversation entity needs to be created
  */
 @Repository
 public interface ConversationRepository extends JpaRepository<ConversationEntity, String> {
@@ -26,6 +26,7 @@ public interface ConversationRepository extends JpaRepository<ConversationEntity
      */
     @Query("SELECT c FROM ConversationEntity c " +
            "WHERE c.userId = :userId " +
+           "AND c.status = 'ACTIVE' " +
            "ORDER BY c.updatedAt DESC")
     List<ConversationEntity> findByUserId(@Param("userId") String userId);
 
@@ -34,24 +35,19 @@ public interface ConversationRepository extends JpaRepository<ConversationEntity
      */
     @Query("SELECT c FROM ConversationEntity c " +
            "WHERE c.userId = :userId " +
+           "AND c.status = 'ACTIVE' " +
            "AND c.updatedAt > :since " +
            "ORDER BY c.updatedAt DESC")
     List<ConversationEntity> findRecentByUserId(
         @Param("userId") String userId,
         @Param("since") Instant since
     );
-}
-
-/**
- * Simple Conversation entity for now
- */
-class ConversationEntity {
-    private String conversationId;
-    private String userId;
-    private String title;
-    private Instant createdAt;
-    private Instant updatedAt;
-    private int messageCount;
-
-    // Getters and setters will be added
+    
+    /**
+     * Count active conversations for user
+     */
+    @Query("SELECT COUNT(c) FROM ConversationEntity c " +
+           "WHERE c.userId = :userId " +
+           "AND c.status = 'ACTIVE'")
+    long countActiveByUserId(@Param("userId") String userId);
 }
