@@ -141,7 +141,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - VITE_WS_URL=ws://localhost:8080/ws/chat/v2
+      - VITE_WS_URL=ws://localhost:8080/ws/chat
       - VITE_API_URL=http://localhost:8001
     depends_on:
       - nginx-lb
