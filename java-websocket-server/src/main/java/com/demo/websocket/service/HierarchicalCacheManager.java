@@ -1,6 +1,7 @@
 package com.demo.websocket.service;
 
 import com.demo.websocket.domain.ChatSession;
+import com.demo.websocket.repository.ChatSessionRepository;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
@@ -15,20 +16,22 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Hierarchical Caching Strategy
+ * Hierarchical Caching Strategy with Cache-Aside Pattern
  *
  * Cache Levels:
  * L1: Caffeine (Local In-Memory) - Ultra-low latency (~1μs)
  * L2: Redis (Distributed) - Low latency (~1ms)
  * L3: Database (Source of Truth) - Higher latency (~10-50ms)
  *
- * Cache-Aside Pattern with Write-Through optimization
+ * Cache-Aside Pattern: Read from cache, if miss then read from DB and populate cache
+ * Write-Through: Write to cache and DB simultaneously
  */
 @Service
 @Slf4j
 public class HierarchicalCacheManager {
 
     private final RedisTemplate<String, ChatSession> redisTemplate;
+    private final ChatSessionRepository chatSessionRepository;
     private final MetricsService metricsService;
     
     // L1 Cache: Caffeine (local in-memory)
@@ -39,8 +42,10 @@ public class HierarchicalCacheManager {
 
     public HierarchicalCacheManager(
             RedisTemplate<String, ChatSession> redisTemplate,
+            ChatSessionRepository chatSessionRepository,
             MetricsService metricsService) {
         this.redisTemplate = redisTemplate;
+        this.chatSessionRepository = chatSessionRepository;
         this.metricsService = metricsService;
         
         // Initialize L1 cache with optimal settings
@@ -57,7 +62,7 @@ public class HierarchicalCacheManager {
     }
 
     /**
-     * Get session from cache hierarchy
+     * Get session from cache hierarchy with Database fallback (Cache-Aside Pattern)
      * L1 → L2 → L3 (Database)
      */
     public Optional<ChatSession> get(String sessionId) {
@@ -83,12 +88,29 @@ public class HierarchicalCacheManager {
         }
         metricsService.recordCacheMiss("L2");
 
-        log.debug("Cache miss for sessionId={}", sessionId);
+        // L3: Query from Database (Cache-Aside Pattern)
+        log.debug("Cache miss, querying database for sessionId={}", sessionId);
+        Optional<ChatSession> dbSession = chatSessionRepository.findBySessionId(sessionId);
+        
+        if (dbSession.isPresent()) {
+            metricsService.recordCacheHit("L3_DB");
+            log.debug("Database hit: sessionId={}", sessionId);
+            
+            // Populate cache hierarchy (write-back to cache)
+            ChatSession foundSession = dbSession.get();
+            l1Cache.put(sessionId, foundSession);
+            redisTemplate.opsForValue().set(redisKey, foundSession, Duration.ofMinutes(10));
+            
+            return dbSession;
+        }
+
+        metricsService.recordCacheMiss("L3_DB");
+        log.debug("Complete miss (L1+L2+DB) for sessionId={}", sessionId);
         return Optional.empty();
     }
 
     /**
-     * Put session into cache hierarchy (write-through)
+     * Put session into cache hierarchy and database (write-through)
      */
     public void put(String sessionId, ChatSession session) {
         // Write to L1 cache
@@ -98,7 +120,16 @@ public class HierarchicalCacheManager {
         String redisKey = getRedisKey(sessionId);
         redisTemplate.opsForValue().set(redisKey, session, Duration.ofMinutes(10));
         
-        log.debug("Cached session: sessionId={}", sessionId);
+        // Write to L3 (Database) - Write-Through Pattern
+        try {
+            chatSessionRepository.save(session);
+            log.debug("Saved session to database: sessionId={}", sessionId);
+        } catch (Exception e) {
+            log.error("Failed to save session to database: sessionId={}", sessionId, e);
+            // Continue even if DB write fails - cache still has the data
+        }
+        
+        log.debug("Cached and persisted session: sessionId={}", sessionId);
     }
 
     /**
@@ -109,7 +140,7 @@ public class HierarchicalCacheManager {
     }
 
     /**
-     * Invalidate session from all cache levels
+     * Invalidate session from all cache levels (but keep in database)
      */
     public void invalidate(String sessionId) {
         // Remove from L1
@@ -119,7 +150,26 @@ public class HierarchicalCacheManager {
         String redisKey = getRedisKey(sessionId);
         redisTemplate.delete(redisKey);
         
-        log.debug("Invalidated session: sessionId={}", sessionId);
+        // Note: We don't delete from database - it's the source of truth
+        // Database deletion should be done explicitly if needed
+        
+        log.debug("Invalidated cache for session: sessionId={}", sessionId);
+    }
+    
+    /**
+     * Delete session from cache and database
+     */
+    public void delete(String sessionId) {
+        // Remove from cache hierarchy
+        invalidate(sessionId);
+        
+        // Delete from database
+        try {
+            chatSessionRepository.deleteById(sessionId);
+            log.debug("Deleted session from database: sessionId={}", sessionId);
+        } catch (Exception e) {
+            log.error("Failed to delete session from database: sessionId={}", sessionId, e);
+        }
     }
 
     /**
