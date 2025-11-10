@@ -27,6 +27,7 @@ services:
   kafka:
     image: apache/kafka:latest
     container_name: demo-kafka
+    user: "0:0"  # Run as root to avoid permission issues with volumes
     ports:
       - "9092:9092"
       - "9093:9093"
