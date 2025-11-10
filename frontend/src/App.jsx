@@ -7,7 +7,8 @@ import MessageList from './components/MessageList';
 import ChatInput from './components/ChatInput';
 
 const WEBSOCKET_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws/chat';
-const AI_SERVICE_URL = import.meta.env.VITE_API_URL || '/api';
+// All API calls now go through Java Backend (port 8080), not Python AI service directly
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
 
 function App() {
   // Session management
@@ -88,7 +89,7 @@ function App() {
       // Immediately add user message to UI (optimistic update)
       addUserMessage(tempMessageId, messageText, sessionId, 'demo_user');
       
-      const response = await axios.post(`${AI_SERVICE_URL}/chat`, {
+      const response = await axios.post(`${API_URL}/chat`, {
         session_id: sessionId,
         message: messageText,
         user_id: 'demo_user'
@@ -110,7 +111,7 @@ function App() {
     if (!streamingMessageId) return;
 
     try {
-      await axios.post(`${AI_SERVICE_URL}/cancel`, {
+      await axios.post(`${API_URL}/cancel`, {
         session_id: sessionId,
         message_id: streamingMessageId
       });
