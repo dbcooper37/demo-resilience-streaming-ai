@@ -134,3 +134,17 @@
 [2025-11-10T07:49:17.089+0000][gc,marking  ] GC(6) Concurrent Cleanup for Next Mark
 [2025-11-10T07:49:17.091+0000][gc,marking  ] GC(6) Concurrent Cleanup for Next Mark 1.065ms
 [2025-11-10T07:49:17.091+0000][gc          ] GC(6) Concurrent Mark Cycle 16.992ms
+[2025-11-10T07:56:29.542+0000][gc,start    ] GC(7) Pause Young (Prepare Mixed) (G1 Evacuation Pause)
+[2025-11-10T07:56:29.542+0000][gc,task     ] GC(7) Using 4 workers of 4 for evacuation
+[2025-11-10T07:56:29.556+0000][gc,phases   ] GC(7)   Pre Evacuate Collection Set: 2.2ms
+[2025-11-10T07:56:29.556+0000][gc,phases   ] GC(7)   Merge Heap Roots: 0.5ms
+[2025-11-10T07:56:29.556+0000][gc,phases   ] GC(7)   Evacuate Collection Set: 9.5ms
+[2025-11-10T07:56:29.556+0000][gc,phases   ] GC(7)   Post Evacuate Collection Set: 1.5ms
+[2025-11-10T07:56:29.556+0000][gc,phases   ] GC(7)   Other: 0.1ms
+[2025-11-10T07:56:29.556+0000][gc,heap     ] GC(7) Eden regions: 47->0(45)
+[2025-11-10T07:56:29.556+0000][gc,heap     ] GC(7) Survivor regions: 4->6(7)
+[2025-11-10T07:56:29.556+0000][gc,heap     ] GC(7) Old regions: 14->14
+[2025-11-10T07:56:29.556+0000][gc,heap     ] GC(7) Humongous regions: 138->138
+[2025-11-10T07:56:29.556+0000][gc,metaspace] GC(7) Metaspace: 40806K(41280K)->40806K(41280K) NonClass: 36415K(36672K)->36415K(36672K) Class: 4391K(4608K)->4391K(4608K)
+[2025-11-10T07:56:29.556+0000][gc          ] GC(7) Pause Young (Prepare Mixed) (G1 Evacuation Pause) 202M->156M(1024M) 14.081ms
+[2025-11-10T07:56:29.556+0000][gc,cpu      ] GC(7) User=0.05s Sys=0.00s Real=0.02s
