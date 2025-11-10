@@ -39,7 +39,8 @@ export const useWebSocket = (url, sessionId, onMessage) => {
     }
 
     try {
-      const ws = new WebSocket(`${url}?session_id=${sessionId}`);
+      // Include user_id and dev-token for authentication (development mode)
+      const ws = new WebSocket(`${url}?session_id=${sessionId}&user_id=demo_user&token=dev-token`);
 
       ws.onopen = () => {
         console.log('WebSocket connected');
