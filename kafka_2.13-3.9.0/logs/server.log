@@ -464,3 +464,4 @@
 [2025-11-10 07:49:17,416] INFO Kafka commitId: a60e31147e6b01ee (org.apache.kafka.common.utils.AppInfoParser)
 [2025-11-10 07:49:17,416] INFO Kafka startTimeMs: 1762760957416 (org.apache.kafka.common.utils.AppInfoParser)
 [2025-11-10 07:49:17,417] INFO [KafkaRaftServer nodeId=1] Kafka Server started (kafka.server.KafkaRaftServer)
+[2025-11-10 07:59:17,167] INFO [NodeToControllerChannelManager id=1 name=registration] Node 1 disconnected. (org.apache.kafka.clients.NetworkClient)
