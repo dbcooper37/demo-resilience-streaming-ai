@@ -5,14 +5,22 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.io.Serializable;
 import java.time.Instant;
 import java.util.List;
 
+/**
+ * Message Domain Model (PoC - POJO only, no JPA)
+ * 
+ * Stored in Redis for PoC. Can add DB persistence later.
+ */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class Message {
+public class Message implements Serializable {
+    private static final long serialVersionUID = 1L;
+    
     private String id;
     private String conversationId;
     private String userId;
