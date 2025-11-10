@@ -489,8 +489,13 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
      */
     private String extractSessionId(WebSocketSession session) {
         String query = session.getUri().getQuery();
-        if (query != null && query.startsWith("session_id=")) {
-            return query.substring("session_id=".length());
+        if (query != null) {
+            String[] params = query.split("&");
+            for (String param : params) {
+                if (param.startsWith("session_id=")) {
+                    return param.substring("session_id=".length());
+                }
+            }
         }
         return "default";
     }

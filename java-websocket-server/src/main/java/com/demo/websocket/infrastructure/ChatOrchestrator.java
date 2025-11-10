@@ -117,7 +117,7 @@ public class ChatOrchestrator {
         log.info("=== SUBSCRIPTION COMPLETE ===");
         log.info("Channel: {}", channel);
         log.info("Listener added to container");
-        log.info("Active message listeners count: {}", listenerContainer.getMessageListeners().size());
+        // log.info("Active message listeners count: {}", listenerContainer.getMessageListeners().size());
     }
 
     /**
