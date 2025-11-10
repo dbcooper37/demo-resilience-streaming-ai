@@ -82,12 +82,14 @@
             <version>${micrometer.version}</version>
         </dependency>
 
-        <!-- Micrometer Prometheus Registry -->
+        <!-- PoC: Prometheus registry disabled (log-only metrics) -->
+        <!--
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
             <version>${micrometer.version}</version>
         </dependency>
+        -->
 
         <!-- JWT -->
         <dependency>

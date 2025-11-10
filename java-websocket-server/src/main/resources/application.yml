@@ -60,38 +60,28 @@ stream:
   backpressure-delay-ms: ${STREAM_BACKPRESSURE_DELAY:10}
   recovery-timeout-minutes: ${STREAM_RECOVERY_TIMEOUT:5}
 
-# Actuator endpoints (for production monitoring)
+# Actuator endpoints (PoC: simplified)
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        include: health,info
+        # PoC: Removed metrics,prometheus - using log-only metrics
   endpoint:
     health:
       show-details: always
-    metrics:
-      enabled: true
-    prometheus:
-      enabled: true
   metrics:
     export:
       prometheus:
-        enabled: true
-    tags:
-      application: ${spring.application.name}
-      node: ${NODE_ID}
+        enabled: false  # PoC: Disabled Prometheus export
 
-# Logging Configuration
+# Logging Configuration (PoC: simplified)
 logging:
   level:
     root: INFO
     com.demo.websocket: ${LOG_LEVEL:INFO}
+    com.demo.websocket.service.MetricsService: DEBUG  # Show [METRIC] logs
     org.springframework.web.socket: INFO
     org.springframework.kafka: ${KAFKA_LOG_LEVEL:WARN}
-    io.micrometer: WARN
   pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [${NODE_ID}] [%thread] %-5level %logger{36} - %msg%n"
-  file:
-    name: ${LOG_FILE:logs/websocket-server.log}
-    max-size: 100MB
-    max-history: 30
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [${NODE_ID:-poc}] [%thread] %-5level %logger{36} - %msg%n"
