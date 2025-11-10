@@ -15,14 +15,19 @@ Hệ thống này giải quyết bài toán: **User đang nhận streaming respo
 **Kiến trúc:**
 ```
 AI Response → Redis PubSub → WebSocket Server → Client
-                    ↓
-              Redis Storage (Chat History)
+                    ↓             ↓
+              Redis Storage   Kafka (Event Sourcing)
 ```
 
 **Các module:**
 1. **Python AI Service** - Mô phỏng AI, publish streaming chunks to Redis PubSub
-2. **Java WebSocket Server** - Subscribe Redis PubSub, persist history, forward to clients
+2. **Java WebSocket Server** - Subscribe Redis PubSub, persist history (Redis + Kafka), forward to clients
 3. **React Frontend** - WebSocket client with reconnection & history loading
+4. **Kafka (KRaft)** - Event sourcing và message persistence (không cần Zookeeper)
+
+**Deployment modes:**
+- **Single Instance**: 1 BE + 1 AI node
+- **Multi-Node**: 3 BE nodes (NGINX load balancer) + 3 AI nodes
 
 ### English
 
@@ -31,14 +36,19 @@ This system solves the problem: **User is receiving streaming response from AI, 
 **Architecture:**
 ```
 AI Response → Redis PubSub → WebSocket Server → Client
-                    ↓
-              Redis Storage (Chat History)
+                    ↓             ↓
+              Redis Storage   Kafka (Event Sourcing)
 ```
 
 **Modules:**
 1. **Python AI Service** - Simulates AI, publishes streaming chunks to Redis PubSub
-2. **Java WebSocket Server** - Subscribes Redis PubSub, persists history, forwards to clients
+2. **Java WebSocket Server** - Subscribes Redis PubSub, persists history (Redis + Kafka), forwards to clients
 3. **React Frontend** - WebSocket client with reconnection & history loading
+4. **Kafka (KRaft)** - Event sourcing and message persistence (no Zookeeper needed)
+
+**Deployment modes:**
+- **Single Instance**: 1 BE + 1 AI node
+- **Multi-Node**: 3 BE nodes (NGINX load balancer) + 3 AI nodes
 
 ---
 
@@ -57,9 +67,11 @@ AI Response → Redis PubSub → WebSocket Server → Client
 | Module | Technology |
 |--------|-----------|
 | AI Service | Python 3.11, FastAPI, Redis |
-| WebSocket Server | Java 17, Spring Boot, WebSocket, Redis PubSub |
+| WebSocket Server | Java 17, Spring Boot, WebSocket, Redis PubSub, Kafka |
 | Frontend | React 18, Vite, WebSocket API |
-| Message Broker & Storage | Redis 7 |
+| Message Broker | Redis 7 (PubSub), Apache Kafka (KRaft mode) |
+| Storage | Redis 7 |
+| Load Balancer | NGINX (multi-node mode) |
 | Orchestration | Docker Compose |
 
 ---
@@ -69,7 +81,7 @@ AI Response → Redis PubSub → WebSocket Server → Client
 ### Prerequisites
 
 - Docker & Docker Compose
-- Ports 3000, 8000, 8080, 6379 phải trống
+- Ports cần thiết phải trống (xem bên dưới theo từng mode)
 
 ### 1. Clone repository
 
@@ -78,17 +90,57 @@ git clone <repository-url>
 cd demo-ai-streamless
 ```
 
-### 2. Chạy tất cả services với Docker Compose
+### 2. Chọn deployment mode
+
+#### Option A: Single Instance (Development/Testing)
+
+Triển khai mỗi service 1 instance với Kafka KRaft:
 
 ```bash
 docker-compose up --build
 ```
 
-Đợi khoảng 2-3 phút để build xong. Bạn sẽ thấy:
-- ✅ Redis running on port 6379
-- ✅ Python AI Service on port 8000
-- ✅ Java WebSocket Server on port 8080
-- ✅ React Frontend on port 3000
+**Ports sử dụng:**
+- Redis: 6379
+- Kafka: 9092, 9093
+- Python AI Service: 8000
+- Java WebSocket Server: 8080
+- Frontend: 3000
+- Kafka UI (debug mode): 8090
+
+**Kafka UI (optional):**
+```bash
+docker-compose --profile debug up
+```
+
+#### Option B: Multi-Node (Production/Load Testing)
+
+Triển khai multi-node với load balancing:
+
+```bash
+docker-compose -f docker-compose.multi-node.yml up --build
+```
+
+**Ports sử dụng:**
+- Redis: 6379
+- Kafka: 9092, 9093
+- Python AI Node 1: 8001
+- Python AI Node 2: 8002
+- Python AI Node 3: 8003
+- Java WebSocket Node 1: 8081
+- Java WebSocket Node 2: 8082
+- Java WebSocket Node 3: 8083
+- NGINX Load Balancer: 8080
+- Frontend: 3000
+- Kafka UI (debug mode): 8090
+
+**Architecture:**
+- 3 Python AI nodes (load balanced by client)
+- 3 Java WebSocket nodes (load balanced by NGINX)
+- Redis PubSub for real-time messaging
+- Kafka for event sourcing and persistence
+
+Đợi khoảng 2-3 phút để build xong.
 
 ### 3. Truy cập ứng dụng
 
@@ -199,6 +251,7 @@ Streaming Message:
 **2. Java WebSocket Server:**
 - Subscribe Redis PubSub channels theo session
 - Forward streaming messages đến WebSocket clients
+- Publish events to Kafka cho event sourcing
 - Khi client connect: gửi chat history từ Redis
 - Quản lý multiple WebSocket connections per session
 
@@ -212,6 +265,12 @@ Streaming Message:
 - **PubSub**: Channel `chat:stream:{session_id}` cho streaming
 - **List**: Key `chat:history:{session_id}` cho persistent storage
 - **TTL**: 24 hours (có thể config)
+
+**5. Kafka (KRaft mode):**
+- **Event Sourcing**: Lưu trữ tất cả events (messages, chunks, metadata)
+- **Topics**: Auto-created based on session
+- **Retention**: 7 days (configurable)
+- **No Zookeeper**: Sử dụng KRaft mode (Kafka Raft) cho metadata management
 
 ---
 
