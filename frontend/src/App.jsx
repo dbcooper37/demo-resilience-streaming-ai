@@ -17,9 +17,10 @@ function App() {
   });
 
   // Chat state
-  const { messages, handleStreamingMessage, loadHistory } = useChat();
+  const { messages, handleStreamingMessage, loadHistory, addUserMessage } = useChat();
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const [streamingMessageId, setStreamingMessageId] = useState(null);
 
   // Save session ID to localStorage
   useEffect(() => {
@@ -34,18 +35,36 @@ function App() {
       setIsLoading(false);
     } else if (data.type === 'message') {
       handleStreamingMessage(data.data);
+      // Track streaming message ID for cancel functionality
+      if (data.data.role === 'assistant' && !data.data.is_complete) {
+        setStreamingMessageId(data.data.message_id);
+      } else if (data.data.is_complete) {
+        setStreamingMessageId(null);
+        setIsSending(false);
+      }
     } else if (data.type === 'welcome') {
       console.log('Welcome message received');
       setIsLoading(false);
     } else if (data.type === 'chunk') {
       // Handle enhanced streaming chunks
       handleStreamingMessage(data.data);
+      if (data.data.role === 'assistant') {
+        setStreamingMessageId(data.data.message_id);
+      }
     } else if (data.type === 'complete') {
       // Handle enhanced complete message
       handleStreamingMessage(data.data);
+      setStreamingMessageId(null);
+      setIsSending(false);
+    } else if (data.type === 'cancelled') {
+      console.log('Streaming cancelled:', data.message_id);
+      setStreamingMessageId(null);
+      setIsSending(false);
     } else if (data.type === 'error') {
       console.error('WebSocket error:', data.error);
       setIsLoading(false);
+      setStreamingMessageId(null);
+      setIsSending(false);
     }
   };
 
@@ -63,6 +82,12 @@ function App() {
     setIsSending(true);
 
     try {
+      // Generate a temporary message ID for optimistic UI update
+      const tempMessageId = `temp_${Date.now()}`;
+      
+      // Immediately add user message to UI (optimistic update)
+      addUserMessage(tempMessageId, messageText, sessionId, 'demo_user');
+      
       const response = await axios.post(`${AI_SERVICE_URL}/chat`, {
         session_id: sessionId,
         message: messageText,
@@ -76,8 +101,23 @@ function App() {
       // Show user-friendly error message
       const errorMessage = error.response?.data?.detail || 'Lỗi khi gửi tin nhắn';
       alert(`Lỗi: ${errorMessage}\nVui lòng thử lại.`);
-    } finally {
       setIsSending(false);
+    }
+  };
+
+  // Cancel streaming message
+  const cancelMessage = async () => {
+    if (!streamingMessageId) return;
+
+    try {
+      await axios.post(`${AI_SERVICE_URL}/cancel`, {
+        session_id: sessionId,
+        message_id: streamingMessageId
+      });
+      
+      console.log('Cancel request sent for message:', streamingMessageId);
+    } catch (error) {
+      console.error('Error cancelling message:', error);
     }
   };
 
@@ -110,8 +150,10 @@ function App() {
         
         <ChatInput
           onSend={sendMessage}
+          onCancel={cancelMessage}
           isConnected={isConnected}
           isSending={isSending}
+          isStreaming={streamingMessageId !== null}
         />
       </div>
     </div>
