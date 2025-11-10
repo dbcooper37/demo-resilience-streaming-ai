@@ -54,7 +54,7 @@ spring:
     producer:
       acks: all
       retries: 3
-      compression-type: snappy
+      compression-type: gzip  # Changed from snappy to gzip (compatible with Alpine Linux)
     topics:
       chat-events: chat-events
       stream-events: stream-events
