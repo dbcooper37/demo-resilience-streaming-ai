@@ -308,27 +308,3 @@ A: Có, chỉ cần update `AI_SERVICE_URLS` và restart backend.
 
 **Q: Sản xuất cần gì thêm?**  
 A: HTTPS, JWT, monitoring (Prometheus/Grafana), PostgreSQL thay H2.
-
-## 🤝 Contributing
-
-Đây là dự án POC. Để production:
-1. Đọc [DOCUMENTATION.md](./DOCUMENTATION.md) phần "Production Readiness"
-2. Implement security (HTTPS, JWT, rate limiting)
-3. Setup monitoring (Prometheus + Grafana)
-4. Migrate sang Kubernetes
-
-## 📄 License
-
-[Your License Here]
-
-## 🏆 Status
-
-**Hiện tại:** Proof of Concept (POC)  
-**Production Ready Score:** 7.6/10  
-**Khuyến nghị:** Sẵn sàng pilot với security & monitoring enhancements
-
----
-
-**Tài liệu đầy đủ:**
-- 🇬🇧 English: [DOCUMENTATION.md](./DOCUMENTATION.md)
-- 🇻🇳 Tiếng Việt: [DOCUMENTATION_VI.md](./DOCUMENTATION_VI.md)
