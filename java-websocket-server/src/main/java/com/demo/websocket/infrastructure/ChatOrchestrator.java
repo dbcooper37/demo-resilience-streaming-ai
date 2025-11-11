@@ -16,8 +16,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -65,13 +65,11 @@ public class ChatOrchestrator {
                                       String userId,
                                       StreamCallback callback) {
 
-        String messageId = UUID.randomUUID().toString();
-
         // Create chat session
         ChatSession session = ChatSession.builder()
                 .sessionId(sessionId)
                 .userId(userId)
-                .messageId(messageId)
+                .messageId(null)
                 .conversationId(sessionId)
                 .status(ChatSession.SessionStatus.INITIALIZING)
                 .startTime(Instant.now())
@@ -95,7 +93,7 @@ public class ChatOrchestrator {
         String legacyChannel = "chat:stream:" + sessionId;
         subscribeToLegacyChannel(legacyChannel, context);
 
-        log.info("Started streaming session: sessionId={}, messageId={}", sessionId, messageId);
+        log.info("Started streaming session: sessionId={}, awaiting upstream messageId", sessionId);
     }
 
     /**
@@ -146,11 +144,34 @@ public class ChatOrchestrator {
 
         log.info("=== HANDLING LEGACY MESSAGE ===");
         log.info("SessionId: {}", session.getSessionId());
-        log.info("MessageId: {}", session.getMessageId());
+        log.info("Current Session MessageId: {}", session.getMessageId());
         log.info("Role: {}", chatMessage.getRole());
         log.info("IsComplete: {}", chatMessage.getIsComplete());
         log.info("ContentLength: {}", chatMessage.getContent() != null ? chatMessage.getContent().length() : 0);
         log.info("ChunkIndex: {}", context.chunkIndex.get());
+
+        String incomingMessageId = chatMessage.getMessageId();
+        if (incomingMessageId == null || incomingMessageId.isBlank()) {
+            log.warn("Received message without messageId - skipping: sessionId={}, role={}",
+                    session.getSessionId(), chatMessage.getRole());
+            return;
+        }
+
+        boolean isAssistant = "assistant".equalsIgnoreCase(chatMessage.getRole());
+
+        if (isAssistant) {
+            if (!incomingMessageId.equals(context.currentMessageId)) {
+                log.info("Detected new assistant stream: sessionId={}, messageId={}",
+                        session.getSessionId(), incomingMessageId);
+                context.chunkIndex.set(0);
+                context.currentMessageId = incomingMessageId;
+                session.setMessageId(incomingMessageId);
+                session.setStartTime(Instant.now());
+                streamCache.updateSessionMessageId(session.getSessionId(), incomingMessageId);
+            }
+        } else {
+            context.currentMessageId = incomingMessageId;
+        }
 
         // Update session status
         if (session.getStatus() == ChatSession.SessionStatus.INITIALIZING) {
@@ -159,15 +180,23 @@ public class ChatOrchestrator {
             streamCache.updateSession(session);
         }
 
+        Map<String, Object> chunkMetadata = new HashMap<>();
+        chunkMetadata.put("role", chatMessage.getRole());
+        chunkMetadata.put("is_complete", chatMessage.getIsComplete());
+        if (chatMessage.getChunk() != null) {
+            chunkMetadata.put("chunk", chatMessage.getChunk());
+        }
+
         // Create stream chunk with accumulated content (not just the chunk)
         // Python sends: content = accumulated_content, chunk = current_word
         // We want to use accumulated content for display
         StreamChunk chunk = StreamChunk.builder()
-                .messageId(session.getMessageId())
+                .messageId(incomingMessageId)
                 .index(context.chunkIndex.getAndIncrement())
                 .content(chatMessage.getContent()) // Use accumulated content, not just the chunk
                 .type(StreamChunk.ChunkType.TEXT)
                 .timestamp(Instant.now())
+                .metadata(chunkMetadata)
                 .build();
 
         log.info("Created StreamChunk: messageId={}, index={}, contentLength={}",
@@ -175,7 +204,7 @@ public class ChatOrchestrator {
                 chunk.getContent() != null ? chunk.getContent().length() : 0);
 
         // Append to cache
-        streamCache.appendChunk(session.getMessageId(), chunk);
+        streamCache.appendChunk(chunk.getMessageId(), chunk);
         log.info("Appended chunk to cache");
 
         // Publish chunk event to Kafka for analytics (if enabled)
@@ -199,7 +228,7 @@ public class ChatOrchestrator {
         streamCache.updateSession(session);
 
         // Check if complete
-        if (chatMessage.getIsComplete() != null && chatMessage.getIsComplete()) {
+        if (isAssistant && Boolean.TRUE.equals(chatMessage.getIsComplete())) {
             log.info("Message is complete, handling completion");
             handleStreamComplete(chatMessage, context);
         }
@@ -214,6 +243,19 @@ public class ChatOrchestrator {
         ChatSession session = context.session;
 
         try {
+            String completedMessageId = chatMessage.getMessageId();
+            if (completedMessageId == null || completedMessageId.isBlank()) {
+                log.warn("Stream completion received without messageId: sessionId={}", session.getSessionId());
+                return;
+            }
+
+            if (!completedMessageId.equals(session.getMessageId())) {
+                log.info("Updating session messageId on completion: sessionId={}, newMessageId={}",
+                        session.getSessionId(), completedMessageId);
+                session.setMessageId(completedMessageId);
+                streamCache.updateSessionMessageId(session.getSessionId(), completedMessageId);
+            }
+
             Duration latency = Duration.between(session.getStartTime(), Instant.now());
 
             // Update session
@@ -251,6 +293,8 @@ public class ChatOrchestrator {
 
             // Callback
             context.callback.onComplete(message);
+            context.currentMessageId = null;
+            context.chunkIndex.set(0);
 
             // Cleanup
             activeStreams.remove(session.getSessionId());
@@ -340,6 +384,7 @@ public class ChatOrchestrator {
         final StreamCallback callback;
         final AtomicInteger chunkIndex;
         final Instant startTime;
+        volatile String currentMessageId;
 
         StreamingContext(ChatSession session, StreamCallback callback) {
             this.session = session;

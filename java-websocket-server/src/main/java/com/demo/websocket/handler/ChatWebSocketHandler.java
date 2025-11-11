@@ -348,15 +348,36 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             String userId = extractUserId(wsSession);
             log.info("UserId: {}", userId);
 
+            String role = "assistant";
+            boolean isComplete = false;
+            String chunkDelta = null;
+
+            if (chunk.getMetadata() != null) {
+                Object roleMeta = chunk.getMetadata().get("role");
+                if (roleMeta instanceof String roleStr && !roleStr.isBlank()) {
+                    role = roleStr;
+                }
+
+                Object completeMeta = chunk.getMetadata().get("is_complete");
+                if (completeMeta instanceof Boolean completeFlag) {
+                    isComplete = completeFlag;
+                }
+
+                Object chunkMeta = chunk.getMetadata().get("chunk");
+                if (chunkMeta instanceof String chunkStr) {
+                    chunkDelta = chunkStr;
+                }
+            }
+
             ChatMessage chatMessage = ChatMessage.builder()
                     .messageId(chunk.getMessageId())
                     .sessionId(sessionId)
                     .userId(userId)
-                    .role("assistant")
+                    .role(role)
                     .content(chunk.getContent())
-                    .chunk(chunk.getContent())
+                    .chunk(chunkDelta != null ? chunkDelta : chunk.getContent())
                     .timestamp(chunk.getTimestamp().toEpochMilli())
-                    .isComplete(false)
+                    .isComplete(isComplete)
                     .build();
 
             String payload = objectMapper.writeValueAsString(Map.of(
