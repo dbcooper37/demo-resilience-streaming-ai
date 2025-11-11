@@ -135,8 +135,7 @@ services:
       - NODE_ID=ai-node-3
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     depends_on:
-      redis:
-        condition: service_healthy
+      - redis
     restart: unless-stopped
     networks:
       - app-network
@@ -167,6 +166,9 @@ services:
       - SPRING_KAFKA_ENABLED=true
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       
+      # AI Service Configuration - Use NGINX load balancer
+      - AI_SERVICE_URL=http://nginx-lb:80/ai
+      
       # Security
       - JWT_SECRET=${JWT_SECRET:-default-secret-key-change-in-production-minimum-256-bits-required}
       - JWT_EXPIRATION_MS=3600000
@@ -189,10 +191,8 @@ services:
       # JVM Settings
       - JAVA_OPTS=-Xms512m -Xmx1024m -XX:+UseG1GC
     depends_on:
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
+      - redis
+      - kafka
     restart: unless-stopped
     networks:
       - app-network
@@ -219,6 +219,9 @@ services:
       - SPRING_KAFKA_ENABLED=true
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       
+      # AI Service Configuration - Use NGINX load balancer
+      - AI_SERVICE_URL=http://nginx-lb:80/ai
+      
       # Security
       - JWT_SECRET=${JWT_SECRET:-default-secret-key-change-in-production-minimum-256-bits-required}
       - JWT_EXPIRATION_MS=3600000
@@ -241,10 +244,8 @@ services:
       # JVM Settings
       - JAVA_OPTS=-Xms512m -Xmx1024m -XX:+UseG1GC
     depends_on:
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
+      - redis
+      - kafka
     restart: unless-stopped
     networks:
       - app-network
@@ -271,6 +272,9 @@ services:
       - SPRING_KAFKA_ENABLED=true
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       
+      # AI Service Configuration - Use NGINX load balancer
+      - AI_SERVICE_URL=http://nginx-lb:80/ai
+      
       # Security
       - JWT_SECRET=${JWT_SECRET:-default-secret-key-change-in-production-minimum-256-bits-required}
       - JWT_EXPIRATION_MS=3600000
@@ -293,10 +297,8 @@ services:
       # JVM Settings
       - JAVA_OPTS=-Xms512m -Xmx1024m -XX:+UseG1GC
     depends_on:
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
+      - redis
+      - kafka
     restart: unless-stopped
     networks:
       - app-network
@@ -310,7 +312,7 @@ services:
   # Load Balancer
   # ==========================================
   
-  # NGINX Load Balancer for WebSocket Servers
+  # NGINX Load Balancer for WebSocket Servers and AI Services
   nginx-lb:
     image: nginx:alpine
     container_name: demo-nginx-lb
@@ -319,9 +321,9 @@ services:
     volumes:
       - ./nginx-lb.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - java-websocket-1
-      - java-websocket-2
-      - java-websocket-3
+      - python-ai-1
+      - python-ai-2
+      - python-ai-3
     restart: unless-stopped
     networks:
       - app-network
@@ -343,10 +345,11 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # Connect through load balancer
+      # Changed: Route ALL requests through NGINX load balancer (port 8080)
+      # NGINX will distribute WebSocket and API calls across Java backend nodes
+      # Java backends will proxy API requests to AI service as needed
       - VITE_WS_URL=ws://localhost:8080/ws/chat
-      # Round-robin to AI nodes (frontend can implement client-side load balancing)
-      - VITE_API_URL=http://localhost:8001
+      - VITE_API_URL=http://localhost:8080/api
     depends_on:
       - nginx-lb
       - python-ai-1

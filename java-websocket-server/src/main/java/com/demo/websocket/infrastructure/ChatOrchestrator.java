@@ -8,11 +8,13 @@ import com.demo.websocket.model.ChatMessage;
 import com.demo.websocket.service.EventPublisher;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.connection.MessageListener;
 import org.springframework.data.redis.listener.ChannelTopic;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.stereotype.Service;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.data.redis.core.RedisTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -34,8 +36,14 @@ public class ChatOrchestrator {
     // Optional: Kafka event publisher (null if Kafka is disabled)
     private final EventPublisher eventPublisher;
 
+    @Value("${stream.ownership-ttl-minutes:10}")  // NEW: Configurable TTL for ownership
+    private int ownershipTtlMinutes;
+
     // Track active streaming sessions
     private final Map<String, StreamingContext> activeStreams = new ConcurrentHashMap<>();
+
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;  // Assume injected via constructor
 
     public ChatOrchestrator(RedisStreamCache streamCache,
                            MessageRepository messageRepository,
@@ -50,6 +58,8 @@ public class ChatOrchestrator {
         this.objectMapper = objectMapper;
         this.eventPublisher = eventPublisher;
         
+        log.info("Ownership TTL configured: {} minutes", ownershipTtlMinutes);
+
         if (eventPublisher != null) {
             log.info("Kafka EventPublisher enabled for event sourcing and analytics");
         } else {
@@ -71,13 +81,24 @@ public class ChatOrchestrator {
         ChatSession session = ChatSession.builder()
                 .sessionId(sessionId)
                 .userId(userId)
-                .messageId(messageId)
                 .conversationId(sessionId)
                 .status(ChatSession.SessionStatus.INITIALIZING)
                 .startTime(Instant.now())
                 .totalChunks(0)
                 .metadata(StreamMetadata.builder().build())
                 .build();
+
+        // NEW: Claim session ownership
+        String ownerKey = "session:owner:" + sessionId;
+        Boolean claimed = redisTemplate.opsForValue().setIfAbsent(ownerKey, getNodeId(), Duration.ofMinutes(ownershipTtlMinutes));
+        
+        if (claimed == null || !claimed) {
+            log.warn("Failed to claim ownership for session: {}, already owned by another node", sessionId);
+            // Optionally: Don't start, or retry/redirect – for PoC, return early
+            return;  // Skip: Let another node handle
+        }
+        
+        log.info("Claimed ownership for session: {} by node: {}", sessionId, getNodeId());
 
         // Initialize stream in cache
         streamCache.initializeStream(session);
@@ -91,7 +112,7 @@ public class ChatOrchestrator {
             eventPublisher.publishSessionStarted(session);
         }
 
-        // Subscribe to legacy Redis PubSub channel
+        // NEW: Only subscribe if we own the session
         String legacyChannel = "chat:stream:" + sessionId;
         subscribeToLegacyChannel(legacyChannel, context);
 
@@ -144,6 +165,13 @@ public class ChatOrchestrator {
     private void handleLegacyMessage(ChatMessage chatMessage, StreamingContext context) {
         ChatSession session = context.session;
 
+        // Add this check at the beginning
+        if ("user".equals(chatMessage.getRole())) {
+            log.info("Ignoring user message in legacy handler: messageId={}, content length={}", 
+                     chatMessage.getMessageId(), chatMessage.getContent() != null ? chatMessage.getContent().length() : 0);
+            return;
+        }
+
         log.info("=== HANDLING LEGACY MESSAGE ===");
         log.info("SessionId: {}", session.getSessionId());
         log.info("MessageId: {}", session.getMessageId());
@@ -162,8 +190,14 @@ public class ChatOrchestrator {
         // Create stream chunk with accumulated content (not just the chunk)
         // Python sends: content = accumulated_content, chunk = current_word
         // We want to use accumulated content for display
+        if (!chatMessage.getIsComplete() && (session.getMessageId() == null || session.getMessageId().isEmpty())) {
+            session.setMessageId(chatMessage.getMessageId());
+            streamCache.updateSession(session);
+            log.info("Set new messageId for session: {}", chatMessage.getMessageId());
+        }
+
         StreamChunk chunk = StreamChunk.builder()
-                .messageId(session.getMessageId())
+                .messageId(chatMessage.getMessageId())  // Changed from session.getMessageId()
                 .index(context.chunkIndex.getAndIncrement())
                 .content(chatMessage.getContent()) // Use accumulated content, not just the chunk
                 .type(StreamChunk.ChunkType.TEXT)
@@ -175,7 +209,7 @@ public class ChatOrchestrator {
                 chunk.getContent() != null ? chunk.getContent().length() : 0);
 
         // Append to cache
-        streamCache.appendChunk(session.getMessageId(), chunk);
+        streamCache.appendChunk(chatMessage.getMessageId(), chunk);  // Changed from session.getMessageId()
         log.info("Appended chunk to cache");
 
         // Publish chunk event to Kafka for analytics (if enabled)
@@ -212,6 +246,7 @@ public class ChatOrchestrator {
      */
     private void handleStreamComplete(ChatMessage chatMessage, StreamingContext context) {
         ChatSession session = context.session;
+        String currentMessageId = chatMessage.getMessageId();
 
         try {
             Duration latency = Duration.between(session.getStartTime(), Instant.now());
@@ -221,11 +256,11 @@ public class ChatOrchestrator {
             session.setTotalChunks(context.chunkIndex.get());
 
             // Mark stream as complete in cache
-            streamCache.markComplete(session.getMessageId(), Duration.ofMinutes(5));
+            streamCache.markComplete(currentMessageId, Duration.ofMinutes(5));
 
             // Save complete message to repository
             Message message = Message.builder()
-                    .id(session.getMessageId())
+                    .id(currentMessageId)
                     .conversationId(session.getConversationId())
                     .userId(session.getUserId())
                     .role(Message.MessageRole.ASSISTANT)
@@ -255,8 +290,13 @@ public class ChatOrchestrator {
             // Cleanup
             activeStreams.remove(session.getSessionId());
 
+            // NEW: Release ownership
+            String ownerKey = "session:owner:" + session.getSessionId();
+            redisTemplate.delete(ownerKey);
+            log.info("Released ownership for completed session: {}", session.getSessionId());
+
             log.info("Stream completed: messageId={}, chunks={}, latency={}ms",
-                    session.getMessageId(),
+                    currentMessageId,
                     context.chunkIndex.get(),
                     latency.toMillis());
 
@@ -330,6 +370,11 @@ public class ChatOrchestrator {
 
         // Cleanup
         activeStreams.remove(session.getSessionId());
+
+        // NEW: Release ownership on error
+        String ownerKey = "session:owner:" + session.getSessionId();
+        redisTemplate.delete(ownerKey);
+        log.info("Released ownership for errored session: {}", session.getSessionId());
     }
 
     /**
@@ -347,5 +392,10 @@ public class ChatOrchestrator {
             this.chunkIndex = new AtomicInteger(0);
             this.startTime = Instant.now();
         }
+    }
+
+    // NEW: Helper to get current node ID (from env or random)
+    private String getNodeId() {
+        return System.getenv("NODE_ID") != null ? System.getenv("NODE_ID") : UUID.randomUUID().toString().substring(0, 8);
     }
 }

@@ -22,6 +22,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [streamingMessageId, setStreamingMessageId] = useState(null);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
 
   // Save session ID to localStorage
   useEffect(() => {
@@ -32,7 +33,11 @@ function App() {
   const handleWebSocketMessage = (data) => {
     if (data.type === 'history') {
       console.log('Received history:', data.messages.length, 'messages');
-      loadHistory(data.messages);
+      // Only load history once to avoid replacing messages
+      if (!historyLoaded) {
+        loadHistory(data.messages);
+        setHistoryLoaded(true);
+      }
       setIsLoading(false);
     } else if (data.type === 'message') {
       handleStreamingMessage(data.data);
@@ -49,8 +54,11 @@ function App() {
     } else if (data.type === 'chunk') {
       // Handle enhanced streaming chunks
       handleStreamingMessage(data.data);
-      if (data.data.role === 'assistant') {
+      if (data.data.role === 'assistant' && !data.data.is_complete) {
         setStreamingMessageId(data.data.message_id);
+      } else if (data.data.is_complete) {
+        setStreamingMessageId(null);
+        setIsSending(false);
       }
     } else if (data.type === 'complete') {
       // Handle enhanced complete message
@@ -111,14 +119,22 @@ function App() {
     if (!streamingMessageId) return;
 
     try {
-      await axios.post(`${API_URL}/cancel`, {
+      const response = await axios.post(`${API_URL}/cancel`, {
         session_id: sessionId,
         message_id: streamingMessageId
       });
       
-      console.log('Cancel request sent for message:', streamingMessageId);
+      console.log('Cancel response:', response.data);
+      
+      if (response.data.status === 'not_found') {
+        // Message already completed - this is normal, just log it
+        console.log('Message already completed:', response.data.message);
+      } else if (response.data.status === 'cancelled') {
+        console.log('Streaming cancelled successfully');
+      }
     } catch (error) {
       console.error('Error cancelling message:', error);
+      // Don't show alert for cancel errors as they're not critical
     }
   };
 
@@ -139,6 +155,7 @@ function App() {
             className="new-session-btn"
             onClick={() => {
               localStorage.removeItem('chatSessionId');
+              setHistoryLoaded(false);
               window.location.reload();
             }}
             title="Bắt đầu phiên chat mới"

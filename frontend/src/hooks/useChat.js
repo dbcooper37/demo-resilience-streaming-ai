@@ -9,12 +9,13 @@ export const useChat = () => {
 
   const handleStreamingMessage = useCallback((message) => {
     if (message.role === 'user') {
-      // User message - add directly if not exists
+      // User message - add directly if not exists (DEDUPLICATION)
       setMessages((prev) => {
         const exists = prev.some(m => m.message_id === message.message_id);
         if (!exists) {
           return [...prev, message];
         }
+        // Already exists - skip to avoid duplicates
         return prev;
       });
     } else if (message.role === 'assistant') {
@@ -68,7 +69,36 @@ export const useChat = () => {
   }, []);
 
   const loadHistory = useCallback((historyMessages) => {
-    setMessages(historyMessages);
+    // DEDUPLICATION STRATEGY (for Subscribe-First Pattern):
+    // After we subscribe to PubSub, we read history. This means:
+    // 1. We might receive chunks via PubSub BEFORE history loads
+    // 2. History might contain chunks we already received via PubSub
+    // 3. We MUST deduplicate based on message_id to avoid showing duplicates
+    //
+    // This function merges history with existing messages intelligently:
+    // - Keeps all existing messages (already received via PubSub)
+    // - Adds history messages that don't exist yet (message_id not in existing)
+    // - Sorts by timestamp to maintain chronological order
+    
+    setMessages((prev) => {
+      if (prev.length === 0) {
+        // No existing messages, just load history
+        return historyMessages;
+      }
+      
+      // DEDUPLICATION: Filter out history messages that already exist
+      const existingIds = new Set(prev.map(m => m.message_id));
+      const newMessages = historyMessages.filter(m => !existingIds.has(m.message_id));
+      
+      console.log(`[Dedup] History: ${historyMessages.length}, Existing: ${prev.length}, New: ${newMessages.length}, Duplicates: ${historyMessages.length - newMessages.length}`);
+      
+      // Combine and sort by timestamp
+      const combined = [...prev, ...newMessages].sort((a, b) => 
+        (a.timestamp || 0) - (b.timestamp || 0)
+      );
+      
+      return combined;
+    });
   }, []);
 
   const clearMessages = useCallback(() => {

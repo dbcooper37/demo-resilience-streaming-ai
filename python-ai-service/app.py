@@ -233,22 +233,41 @@ async def cancel_message(request: CancelRequest):
     Cancel an ongoing streaming message
     
     Stops the AI from generating more content for the specified message.
+    Works across all nodes in a distributed environment using Redis.
     """
     try:
+        logger.info(f"Cancel request received: session_id={request.session_id}, message_id={request.message_id}")
+        
+        # Check active streaming task from Redis
+        active_msg_id = redis_client.get_active_stream(request.session_id)
+        logger.info(f"Active message in Redis: {active_msg_id}")
+        
         success = chat_service.cancel_streaming(request.session_id, request.message_id)
         
         if not success:
+            # Message ID mismatch
+            logger.warning(f"Message ID mismatch: requested={request.message_id}, active={active_msg_id}")
             return {
                 "status": "not_found",
-                "message": "No active streaming task found for this session/message"
+                "message": "Message ID mismatch - wrong message ID provided",
+                "detail": f"Active message ID: {active_msg_id}, requested: {request.message_id}"
             }
         
-        return {
-            "status": "cancelled",
-            "message": "Streaming cancelled successfully",
-            "session_id": request.session_id,
-            "message_id": request.message_id
-        }
+        # Cancellation successful or message already completed
+        if active_msg_id:
+            return {
+                "status": "cancelled",
+                "message": "Streaming cancelled successfully",
+                "session_id": request.session_id,
+                "message_id": request.message_id
+            }
+        else:
+            return {
+                "status": "completed",
+                "message": "Message already completed or not found",
+                "session_id": request.session_id,
+                "message_id": request.message_id
+            }
         
     except Exception as e:
         logger.error(f"Error cancelling message: {e}", exc_info=True)
