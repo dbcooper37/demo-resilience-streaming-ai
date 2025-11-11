@@ -144,7 +144,7 @@ class RedisClient:
             logger.info(f"Set cancel flag: session={session_id}, message={message_id}")
             return True
         except RedisError as e:
-            logger.error(f"Failed to set cancel flag: {e}")
+            logger.error(f"CRITICAL: Failed to set cancel flag (Redis down?): {e}")
             return False
     
     def check_cancel_flag(self, session_id: str, message_id: str) -> bool:
@@ -154,7 +154,9 @@ class RedisClient:
             result = self.client.exists(key)
             return result > 0
         except RedisError as e:
-            logger.error(f"Failed to check cancel flag: {e}")
+            # IMPORTANT: If Redis fails, we continue streaming (fail-safe)
+            # This prevents Redis outages from breaking all streaming
+            logger.warning(f"Redis unavailable for cancel check, continuing stream: {e}")
             return False
     
     def clear_cancel_flag(self, session_id: str, message_id: str) -> bool:

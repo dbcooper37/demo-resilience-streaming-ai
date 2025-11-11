@@ -226,15 +226,19 @@ class ChatService:
         accumulated_content = ""
         chunk_count = 0
         cancelled = False
+        last_cancel_check = 0
         
         try:
             # Stream response word by word
             async for chunk in AIService.generate_streaming_response(response_text):
                 # Check if cancelled via Redis (works across all nodes)
-                if redis_client.check_cancel_flag(session_id, message_id):
-                    logger.info(f"Streaming cancelled (via Redis) for session={session_id}, msg_id={message_id}")
-                    cancelled = True
-                    break
+                # OPTIMIZATION: Check every 10 chunks to reduce Redis calls
+                # This adds max 0.5s delay to cancel response but reduces overhead
+                if chunk_count % 10 == 0 or chunk_count == 0:
+                    if redis_client.check_cancel_flag(session_id, message_id):
+                        logger.info(f"Streaming cancelled (via Redis) for session={session_id}, msg_id={message_id}")
+                        cancelled = True
+                        break
                 
                 accumulated_content += chunk
                 chunk_count += 1
@@ -314,8 +318,12 @@ class ChatService:
             redis_client.save_to_history(session_id, error_message)
         finally:
             # Clean up Redis tracking
-            redis_client.clear_active_stream(session_id)
-            redis_client.clear_cancel_flag(session_id, message_id)
+            # Failures here are not critical - TTL will cleanup eventually
+            try:
+                redis_client.clear_active_stream(session_id)
+                redis_client.clear_cancel_flag(session_id, message_id)
+            except Exception as e:
+                logger.warning(f"Non-critical: Failed to cleanup Redis tracking: {e}")
         
         return message_id
     
