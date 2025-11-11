@@ -1,0 +1,352 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # Core Infrastructure
+  # ==========================================
+  
+  # Redis - Shared State & PubSub
+  redis:
+    image: redis:7-alpine
+    container_name: sticky-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # Kafka with KRaft
+  kafka:
+    image: apache/kafka:latest
+    container_name: sticky-kafka
+    user: "0:0"
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 24
+      KAFKA_LOG_RETENTION_BYTES: 536870912
+    volumes:
+      - kafka-data:/tmp/kraft-combined-logs
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9092"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ==========================================
+  # Python AI Service - Multi Node
+  # ==========================================
+  
+  python-ai-1:
+    build:
+      context: ./python-ai-service
+      dockerfile: Dockerfile
+    container_name: sticky-python-ai-1
+    # No exposed ports - only accessible via internal network
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - NODE_ID=ai-node-1
+      - LOG_LEVEL=INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  python-ai-2:
+    build:
+      context: ./python-ai-service
+      dockerfile: Dockerfile
+    container_name: sticky-python-ai-2
+    # No exposed ports - only accessible via internal network
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - NODE_ID=ai-node-2
+      - LOG_LEVEL=INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  python-ai-3:
+    build:
+      context: ./python-ai-service
+      dockerfile: Dockerfile
+    container_name: sticky-python-ai-3
+    # No exposed ports - only accessible via internal network
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - NODE_ID=ai-node-3
+      - LOG_LEVEL=INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ==========================================
+  # Java WebSocket Server - Multi Node
+  # ==========================================
+  
+  java-websocket-1:
+    build:
+      context: ./java-websocket-server
+      dockerfile: Dockerfile
+    container_name: sticky-java-ws-1
+    # No exposed ports - only accessible via load balancer
+    environment:
+      # Redis Configuration
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      
+      # Kafka Configuration
+      - SPRING_KAFKA_ENABLED=true
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      
+      # Security
+      - JWT_SECRET=${JWT_SECRET:-sticky-session-secret-key-minimum-256-bits-required-for-production}
+      - JWT_EXPIRATION_MS=3600000
+      
+      # Cache Configuration
+      - CACHE_L1_MAX_SIZE=5000
+      - CACHE_L1_EXPIRE_WRITE=3
+      - CACHE_L1_EXPIRE_ACCESS=1
+      - CACHE_L2_TTL=5
+      
+      # Stream Configuration
+      - STREAM_MAX_PENDING_CHUNKS=1000
+      - STREAM_BACKPRESSURE_DELAY=10
+      - STREAM_RECOVERY_TIMEOUT=5
+      
+      # Node Identification
+      - NODE_ID=ws-node-1
+      - LOG_LEVEL=INFO
+      
+      # JVM Settings - Optimized for multi-node
+      - JAVA_OPTS=-Xms384m -Xmx768m -XX:+UseG1GC -XX:MaxGCPauseMillis=200
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  java-websocket-2:
+    build:
+      context: ./java-websocket-server
+      dockerfile: Dockerfile
+    container_name: sticky-java-ws-2
+    # No exposed ports - only accessible via load balancer
+    environment:
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - SPRING_KAFKA_ENABLED=true
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - JWT_SECRET=${JWT_SECRET:-sticky-session-secret-key-minimum-256-bits-required-for-production}
+      - JWT_EXPIRATION_MS=3600000
+      - CACHE_L1_MAX_SIZE=5000
+      - CACHE_L1_EXPIRE_WRITE=3
+      - CACHE_L1_EXPIRE_ACCESS=1
+      - CACHE_L2_TTL=5
+      - STREAM_MAX_PENDING_CHUNKS=1000
+      - STREAM_BACKPRESSURE_DELAY=10
+      - STREAM_RECOVERY_TIMEOUT=5
+      - NODE_ID=ws-node-2
+      - LOG_LEVEL=INFO
+      - JAVA_OPTS=-Xms384m -Xmx768m -XX:+UseG1GC -XX:MaxGCPauseMillis=200
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  java-websocket-3:
+    build:
+      context: ./java-websocket-server
+      dockerfile: Dockerfile
+    container_name: sticky-java-ws-3
+    # No exposed ports - only accessible via load balancer
+    environment:
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - SPRING_KAFKA_ENABLED=true
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - JWT_SECRET=${JWT_SECRET:-sticky-session-secret-key-minimum-256-bits-required-for-production}
+      - JWT_EXPIRATION_MS=3600000
+      - CACHE_L1_MAX_SIZE=5000
+      - CACHE_L1_EXPIRE_WRITE=3
+      - CACHE_L1_EXPIRE_ACCESS=1
+      - CACHE_L2_TTL=5
+      - STREAM_MAX_PENDING_CHUNKS=1000
+      - STREAM_BACKPRESSURE_DELAY=10
+      - STREAM_RECOVERY_TIMEOUT=5
+      - NODE_ID=ws-node-3
+      - LOG_LEVEL=INFO
+      - JAVA_OPTS=-Xms384m -Xmx768m -XX:+UseG1GC -XX:MaxGCPauseMillis=200
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ==========================================
+  # Load Balancer with Sticky Sessions
+  # ==========================================
+  
+  nginx-lb:
+    image: nginx:alpine
+    container_name: sticky-nginx-lb
+    ports:
+      - "8080:80"
+      - "8090:8090"  # Admin/metrics endpoint
+    volumes:
+      - ./nginx-sticky-session.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - java-websocket-1
+      - java-websocket-2
+      - java-websocket-3
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ==========================================
+  # Frontend Application
+  # ==========================================
+  
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sticky-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      # Connect through load balancer
+      - VITE_WS_URL=ws://localhost:8080/ws/chat
+      - VITE_API_URL=http://localhost:8080/api
+    depends_on:
+      - nginx-lb
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ==========================================
+  # Monitoring - Optional
+  # ==========================================
+  
+  redis-exporter:
+    profiles: ["monitoring"]
+    image: oliver006/redis_exporter:latest
+    container_name: sticky-redis-exporter
+    ports:
+      - "9121:9121"
+    environment:
+      - REDIS_ADDR=redis:6379
+    depends_on:
+      - redis
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  kafka-ui:
+    profiles: ["debug"]
+    image: provectuslabs/kafka-ui:latest
+    container_name: sticky-kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8091:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: sticky-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      DYNAMIC_CONFIG_ENABLED: 'true'
+    networks:
+      - app-network
+
+volumes:
+  redis-data:
+    driver: local
+  kafka-data:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
