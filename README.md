@@ -1,166 +1,226 @@
-# 🚀 Multi-Node AI Chat Service with Sticky Sessions
+# 🚀 Hệ Thống AI Chat Đa Node với Sticky Sessions
 
-[![Architecture](https://img.shields.io/badge/Architecture-Multi--Node-blue)]()
-[![Deployment](https://img.shields.io/badge/Deployment-Docker%20Compose-green)]()
-[![Status](https://img.shields.io/badge/Status-POC-orange)]()
+> **Giải pháp:** Hệ thống chat AI thời gian thực, có khả năng mở rộng với triển khai đa node
 
-## 📚 Overview
+[![Architecture](https://img.shields.io/badge/Ki%E1%BA%BFn%20tr%C3%BAc-Multi--Node-blue)]()
+[![Deployment](https://img.shields.io/badge/Tri%E1%BB%83n%20khai-Docker%20Compose-green)]()
+[![Status](https://img.shields.io/badge/Tr%E1%BA%A1ng%20th%C3%A1i-POC-orange)]()
 
-A scalable, distributed real-time AI chat service featuring:
+## ⚡ Tính Năng Chính
 
-- ✅ **Multi-Node Deployment** - Horizontal scaling with 3+ backend & AI nodes
-- ✅ **Sticky Sessions** - WebSocket persistence via Nginx `ip_hash`
-- ✅ **Shared State** - Redis-based distributed session management
-- ✅ **Real-Time Streaming** - Word-by-word AI response streaming
-- ✅ **Load Balancing** - Round-robin AI service distribution with retry
-- ✅ **Backend Gateway** - Centralized API access pattern
-- ✅ **Cancellation Support** - Stop streaming mid-generation
-- ✅ **Auto Recovery** - Message recovery on reconnection
+- ✅ **Streaming Thời Gian Thực** - Phản hồi AI từng từ một
+- ✅ **Triển Khai Đa Node** - 3 Backend + 3 AI Service nodes
+- ✅ **Sticky Sessions** - WebSocket liên tục qua Nginx `ip_hash`
+- ✅ **Shared State** - Quản lý session phân tán qua Redis
+- ✅ **Load Balancing** - Round-robin với retry tự động
+- ✅ **Backend Gateway** - Truy cập AI service tập trung
+- ✅ **Hủy Streaming** - Dừng sinh phản hồi giữa chừng
 
-## 📖 Documentation
+## 🏗️ Kiến Trúc
 
-### **→ [📘 Complete POC Documentation](./POC_DOCUMENTATION.md)** ←
-
-**This comprehensive document includes:**
-- Executive Summary & Business Case
-- Detailed Architecture with Mermaid Diagrams
-- Complete Request Flows
-- Technical Implementation Details
-- Deployment Guide & Scaling Strategy
-- Performance Metrics & Benchmarks
-- Production Readiness Assessment
-
-## 🏗️ Architecture Quick View
-
-```mermaid
-graph TB
-    Client[React Frontend] --> LB[Nginx Load Balancer<br/>Sticky Sessions]
-    LB --> WS1[Backend Node 1]
-    LB --> WS2[Backend Node 2]
-    LB --> WS3[Backend Node 3]
-    
-    WS1 --> AI1[AI Service 1]
-    WS1 --> AI2[AI Service 2]
-    WS2 --> AI1
-    WS2 --> AI2
-    WS3 --> AI1
-    WS3 --> AI2
-    
-    WS1 --> Redis[(Redis<br/>Shared State)]
-    WS2 --> Redis
-    WS3 --> Redis
-    
-    AI1 --> Redis
-    AI2 --> Redis
+```
+Client → Nginx (Sticky) → Backend Cluster → AI Service Cluster
+                              ↓                    ↓
+                         Redis + Kafka (Shared Infrastructure)
 ```
 
-## 🚀 Quick Start
+**Stack:**
+- Frontend: React 18 + Vite + WebSocket
+- Backend: Spring Boot 3 + Redisson
+- AI Service: FastAPI + Redis PubSub
+- Infrastructure: Nginx + Redis + Kafka
+- Deploy: Docker Compose
 
-### Prerequisites
-- Docker & Docker Compose installed
-- 8GB RAM minimum
-- 20GB disk space
-
-### Start System
+## 🚀 Khởi Chạy Nhanh
 
 ```bash
-# Clone and checkout branch
+# Clone và checkout branch
 git checkout dev_sticky_session
 
-# Start all services
+# Khởi động toàn bộ hệ thống
 docker compose -f docker-compose.sticky-session.yml up -d
 
-# Wait for services to be healthy (~30-60 seconds)
+# Kiểm tra trạng thái
 docker compose ps
 
-# Check logs
-docker compose logs -f java-websocket-1 python-ai-1
+# Truy cập ứng dụng
+open http://localhost:3000
 ```
 
-### Access Application
+## 📖 Tài Liệu
 
-| Service | URL |
-|---------|-----|
-| **Frontend** | http://localhost:3000 |
-| **Backend API** | http://localhost:8080/api |
-| **WebSocket** | ws://localhost:8080/ws/chat |
-| **Health Check** | http://localhost:8080/health |
+### **→ [📘 Tài Liệu Đầy Đủ (English)](./DOCUMENTATION.md)**
+### **→ [📘 Tài Liệu Tiếng Việt](./DOCUMENTATION_VI.md)**
 
-### Stop System
+Bao gồm:
+- Kiến trúc hệ thống với Mermaid diagrams
+- Chi tiết triển khai kỹ thuật
+- Request flows và use cases
+- Performance metrics
+- Production roadmap
 
-```bash
-# Stop all services
-docker compose -f docker-compose.sticky-session.yml down
+## 🎯 URL Truy Cập
 
-# Clean slate (remove volumes)
-docker compose -f docker-compose.sticky-session.yml down -v
+| Service | URL | Mô tả |
+|---------|-----|-------|
+| **Frontend** | http://localhost:3000 | Ứng dụng web React |
+| **API** | http://localhost:8080/api | REST API endpoints |
+| **WebSocket** | ws://localhost:8080/ws/chat | Kết nối realtime |
+| **Health** | http://localhost:8080/health | Kiểm tra sức khỏe |
+
+## 📊 Kiến Trúc Tổng Quan
+
+### Các Thành Phần
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Client Browser                       │
+└────────────────────┬────────────────────────────────────┘
+                     │
+          ┌──────────▼──────────┐
+          │  Nginx Load Balancer │ (ip_hash - Sticky Sessions)
+          └──────────┬───────────┘
+                     │
+        ┌────────────┼────────────┐
+        │            │            │
+   ┌────▼───┐  ┌────▼───┐  ┌────▼───┐
+   │Backend1│  │Backend2│  │Backend3│ (Spring Boot WebSocket)
+   └────┬───┘  └────┬───┘  └────┬───┘
+        │            │            │
+        └────────────┼────────────┘
+                     │
+        ┌────────────┼────────────┐
+        │            │            │
+   ┌────▼───┐  ┌────▼───┐  ┌────▼───┐
+   │AI Svc1 │  │AI Svc2 │  │AI Svc3 │ (Python FastAPI)
+   └────┬───┘  └────┬───┘  └────┬───┘
+        │            │            │
+        └────────────┼────────────┘
+                     │
+        ┌────────────▼────────────┐
+        │  Redis + Kafka + H2 DB  │ (Shared Infrastructure)
+        └─────────────────────────┘
 ```
 
-## 🎯 Key Features
+### Đặc Điểm Kiến Trúc
 
-### 1. Sticky Sessions
-- Client IP-based session affinity
-- Persistent WebSocket connections
-- Automatic failover on node failure
+**1. Sticky Sessions (Nginx `ip_hash`)**
+- Client IP → luôn route đến cùng 1 backend node
+- Duy trì kết nối WebSocket
+- Failover tự động khi node lỗi
 
-### 2. Shared State
-- Redis-based distributed session registry
-- Stream chunk caching with TTL
-- Message history persistence
+**2. Shared State (Redis)**
+- Session registry phân tán
+- Stream chunks với TTL
+- Message history
+- PubSub cho realtime distribution
 
-### 3. Load Balancing
-- Nginx for client→backend (ip_hash)
-- Backend for AI service requests (round-robin)
-- Automatic retry on failure
-
-### 4. Real-Time Streaming
-- Word-by-word AI response streaming
-- Redis PubSub for message distribution
-- WebSocket delivery to clients
-
-### 5. Backend Gateway Pattern
-```
-Frontend → Nginx → Backend Gateway → AI Services
-```
-- Single entry point for all AI requests
+**3. Backend Gateway Pattern**
+- Frontend chỉ gọi Backend API
+- Backend load-balance tới AI services
+- Round-robin + retry logic
 - Centralized authentication & logging
-- Flexible AI service management
 
-## 📊 Architecture Highlights
-
-### Multi-Node Deployment
+**4. Multi-Node Deployment**
 ```
-3x Java WebSocket Backends  (768MB each)
-3x Python AI Services       (256MB each)
-1x Redis                    (512MB)
-1x Kafka (optional)         (512MB)
-1x Nginx Load Balancer      (128MB)
-1x React Frontend           (128MB)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3 Backend Nodes  (768MB each) - WebSocket handling
+3 AI Nodes       (256MB each) - AI processing
+1 Redis          (512MB)      - Shared state
+1 Kafka          (512MB)      - Event streaming
+1 Nginx LB       (128MB)      - Load balancing
+1 Frontend       (128MB)      - Web UI
+───────────────────────────────────────────────
 Total: ~4.5GB RAM
 ```
 
-### Technology Stack
+## 🔥 Tính Năng Nổi Bật
 
-**Frontend:** React 18 + Vite + WebSocket API  
-**Backend:** Spring Boot 3 + Spring WebSocket + Redisson  
-**AI Service:** FastAPI + Redis-py + Uvicorn  
-**Infrastructure:** Redis 7 + Apache Kafka + Nginx  
-**Deployment:** Docker + Docker Compose
+### 1. Real-Time Streaming
+```
+User gửi: "Xin chào"
+↓
+AI sinh: "X" → "Xi" → "Xin" → "Xin c" → "Xin ch" → "Xin chào!"
+↓
+Frontend hiển thị từng từ một (như ChatGPT)
+```
+
+### 2. Cancellation Support
+```javascript
+// User có thể hủy giữa chừng
+onClick={() => cancelStreaming(messageId)}
+→ AI dừng streaming ngay lập tức
+→ Hiển thị "[Đã hủy]"
+```
+
+### 3. Session Persistence
+```
+User reload trang → Chat history được khôi phục
+User ngắt kết nối → Reconnect tự động
+Mid-stream disconnect → Resume từ vị trí cũ
+```
+
+### 4. Distributed Locks
+```java
+// Đảm bảo thứ tự chunks khi đa node
+RLock lock = redisson.getLock("stream:lock:" + messageId);
+lock.lock();
+try {
+    redis.rightPush(key, chunk); // Thứ tự đúng
+} finally {
+    lock.unlock();
+}
+```
 
 ## 📈 Performance
 
-| Metric | Value |
-|--------|-------|
+| Metric | Giá trị |
+|--------|---------|
 | WebSocket Connect | ~10ms |
 | Send Message | ~20ms |
 | Stream Chunk | ~5ms |
 | History Load | ~50ms |
 | Throughput | 10,000 chunks/s |
 
-*Tested with 100 concurrent users on laptop (8 cores, 16GB RAM)*
+*Test với 100 concurrent users*
 
-## 🔧 Configuration
+## 🧪 Testing
+
+### Test Cơ Bản
+```bash
+# 1. Mở frontend
+open http://localhost:3000
+
+# 2. Gửi message → Xem streaming
+
+# 3. Bấm Cancel → Verify dừng ngay
+
+# 4. Reload trang → History được khôi phục
+```
+
+### Test Multi-Node
+```bash
+# Mở nhiều browser tabs
+# Kiểm tra logs để xem distribution
+
+docker compose logs nginx-lb | grep "upstream:"
+# → Mỗi tab route đến node khác nhau (sticky)
+
+docker compose logs java-websocket-1 | grep "WebSocket connected"
+# → Xem node nào handle session nào
+```
+
+### Test Failover
+```bash
+# Stop 1 backend node
+docker compose stop java-websocket-2
+
+# Verify:
+# - Clients hiện tại trên node 2 disconnect
+# - Clients mới connect tới node 1 hoặc 3
+# - Hệ thống vẫn hoạt động bình thường
+```
+
+## 🛠️ Cấu Hình
 
 ### Backend Nodes
 ```yaml
@@ -169,50 +229,48 @@ SPRING_DATA_REDIS_HOST: "redis"
 NODE_ID: "ws-node-1"
 ```
 
-### Nginx Load Balancer
+### Nginx (Sticky Sessions)
 ```nginx
 upstream websocket_backend {
-    ip_hash;  # Sticky sessions
+    ip_hash;  # Sticky session
     server java-websocket-1:8080;
     server java-websocket-2:8080;
     server java-websocket-3:8080;
 }
 ```
 
-## 🧪 Testing
+## 🔍 Monitoring
 
-### Manual Testing
-1. Open http://localhost:3000
-2. Send a chat message
-3. Observe real-time streaming response
-4. Click Cancel during streaming
-5. Refresh page → history preserved
-
-### Load Testing
 ```bash
-# Test with multiple clients
-for i in {1..10}; do
-  open http://localhost:3000 &
-done
+# Trạng thái services
+docker compose ps
 
-# Monitor distribution
-docker compose logs nginx-lb | grep upstream:
+# Logs realtime
+docker compose logs -f java-websocket-1 python-ai-1
+
+# Redis data
+docker exec -it sticky-redis redis-cli
+> KEYS sessions:*
+
+# Resource usage
+docker stats
 ```
 
-## 📁 Project Structure
+## 📁 Cấu Trúc Dự Án
 
 ```
-├── docker-compose.sticky-session.yml  # Multi-node orchestration
+├── docker-compose.sticky-session.yml  # Multi-node setup
 ├── nginx-sticky-session.conf          # Load balancer config
-├── POC_DOCUMENTATION.md               # Complete documentation
-├── README.md                          # This file
+├── DOCUMENTATION.md                   # Full English docs
+├── DOCUMENTATION_VI.md                # Tài liệu tiếng Việt
+├── README.md                          # File này
 │
-├── frontend/                          # React application
+├── frontend/                          # React app
 │   ├── src/
 │   │   ├── App.jsx
 │   │   ├── hooks/
-│   │   │   ├── useChat.js
-│   │   │   └── useWebSocket.js
+│   │   │   ├── useChat.js            # Chat state management
+│   │   │   └── useWebSocket.js       # WebSocket connection
 │   │   └── components/
 │   └── Dockerfile
 │
@@ -221,67 +279,43 @@ docker compose logs nginx-lb | grep upstream:
 │   │   ├── handler/
 │   │   │   └── ChatWebSocketHandler.java
 │   │   ├── infrastructure/
-│   │   │   ├── SessionManager.java
-│   │   │   ├── RedisStreamCache.java
-│   │   │   └── ChatOrchestrator.java
+│   │   │   ├── SessionManager.java          # Distributed sessions
+│   │   │   ├── RedisStreamCache.java        # Chunk ordering
+│   │   │   └── ChatOrchestrator.java        # Stream lifecycle
 │   │   ├── service/
-│   │   │   └── AiServiceLoadBalancer.java
+│   │   │   └── AiServiceLoadBalancer.java   # AI LB logic
 │   │   └── controller/
-│   │       └── ChatController.java
+│   │       └── ChatController.java          # API Gateway
 │   └── Dockerfile
 │
 └── python-ai-service/                # AI service
-    ├── app.py
-    ├── ai_service.py
-    ├── redis_client.py
+    ├── app.py                        # FastAPI app
+    ├── ai_service.py                 # Streaming logic
+    ├── redis_client.py               # Redis PubSub
     └── Dockerfile
 ```
 
-## 🐛 Troubleshooting
+## ❓ FAQ
 
-### Services Not Starting
-```bash
-# Check service status
-docker compose ps
+**Q: Tại sao dùng Sticky Sessions?**  
+A: WebSocket cần connection liên tục. Sticky session đảm bảo client luôn connect tới cùng 1 backend node.
 
-# View logs
-docker compose logs [service-name]
+**Q: Shared State được lưu ở đâu?**  
+A: Redis - sessions, chunks, history. Kafka - events (optional).
 
-# Restart specific service
-docker compose restart [service-name]
-```
+**Q: Có thể scale thêm nodes không?**  
+A: Có, chỉ cần update `AI_SERVICE_URLS` và restart backend.
 
-### WebSocket Connection Fails
-```bash
-# Check nginx logs
-docker compose logs nginx-lb
-
-# Verify backend health
-curl http://localhost:8080/actuator/health
-```
-
-### Redis Connection Issues
-```bash
-# Test Redis connectivity
-docker exec -it sticky-redis redis-cli ping
-
-# Check Redis keys
-docker exec -it sticky-redis redis-cli KEYS '*'
-```
-
-## 📚 Additional Resources
-
-- [Complete POC Documentation](./POC_DOCUMENTATION.md) - Full architecture & implementation details
-- [Docker Compose File](./docker-compose.sticky-session.yml) - Service configuration
-- [Nginx Config](./nginx-sticky-session.conf) - Load balancer setup
+**Q: Sản xuất cần gì thêm?**  
+A: HTTPS, JWT, monitoring (Prometheus/Grafana), PostgreSQL thay H2.
 
 ## 🤝 Contributing
 
-This is a Proof of Concept project. For production deployment:
-1. Review [POC_DOCUMENTATION.md](./POC_DOCUMENTATION.md) Section "Production Readiness"
-2. Implement security enhancements (HTTPS, JWT, rate limiting)
-3. Set up monitoring (Prometheus, Grafana)
-4. Migrate to Kubernetes for production-grade orchestration
+Đây là dự án POC. Để production:
+1. Đọc [DOCUMENTATION.md](./DOCUMENTATION.md) phần "Production Readiness"
+2. Implement security (HTTPS, JWT, rate limiting)
+3. Setup monitoring (Prometheus + Grafana)
+4. Migrate sang Kubernetes
 
 ## 📄 License
 
@@ -289,11 +323,12 @@ This is a Proof of Concept project. For production deployment:
 
 ## 🏆 Status
 
-**Current:** Proof of Concept (POC)  
+**Hiện tại:** Proof of Concept (POC)  
 **Production Ready Score:** 7.6/10  
-**Recommended:** Ready for pilot with security & monitoring enhancements
+**Khuyến nghị:** Sẵn sàng pilot với security & monitoring enhancements
 
 ---
 
-**For complete documentation with diagrams and implementation details:**  
-**→ [📘 Read POC_DOCUMENTATION.md](./POC_DOCUMENTATION.md)**
+**Tài liệu đầy đủ:**
+- 🇬🇧 English: [DOCUMENTATION.md](./DOCUMENTATION.md)
+- 🇻🇳 Tiếng Việt: [DOCUMENTATION_VI.md](./DOCUMENTATION_VI.md)
