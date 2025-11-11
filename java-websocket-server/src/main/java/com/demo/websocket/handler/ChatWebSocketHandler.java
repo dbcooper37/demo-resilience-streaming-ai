@@ -97,13 +97,21 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             // Send welcome message
             sendWelcomeMessage(wsSession, sessionId);
 
-            // Send chat history
-            sendChatHistory(wsSession, sessionId);
-
-            // Start streaming session with enhanced orchestrator
-            // This will handle Redis PubSub subscription internally
+            // FIX RACE CONDITION: Subscribe-First Pattern
+            // STEP 1: Subscribe to PubSub FIRST (before reading history)
+            // This ensures we don't miss any messages published during history read
+            log.info("🔧 FIX: Subscribing to PubSub BEFORE reading history");
             chatOrchestrator.startStreamingSession(sessionId, userId,
                     new WebSocketStreamCallback(wsSession));
+            
+            // STEP 2: Then read and send chat history
+            // Note: History may contain chunks that we'll also receive via PubSub (duplicates)
+            // The client will deduplicate based on message_id
+            log.info("🔧 FIX: Now reading history (may have duplicates, client will deduplicate)");
+            sendChatHistory(wsSession, sessionId);
+            
+            // Result: No data loss! May have duplicates but that's acceptable
+            // Duplicates will be filtered by client based on message_id
 
         } catch (SecurityException e) {
             log.error("Security violation during connection: sessionId={}", sessionId, e);
