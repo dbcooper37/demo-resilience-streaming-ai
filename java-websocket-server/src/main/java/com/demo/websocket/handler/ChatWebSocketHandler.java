@@ -99,6 +99,18 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
             // Send chat history
             sendChatHistory(wsSession, sessionId);
+            
+            // REPRODUCE RACE CONDITION: Add delay to expand risk window
+            // This simulates the gap between reading history (Step 1) and subscribing (Step 3)
+            // During this window, Python AI Service might publish chunk 7 which will be MISSED
+            log.warn("⚠️ RACE CONDITION TEST: Sleeping 2 seconds before subscribe...");
+            log.warn("⚠️ If Python publishes chunk 7 during this window, it will be LOST!");
+            try {
+                Thread.sleep(2000);  // 2 second delay to expand risk window
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            log.warn("⚠️ RACE CONDITION TEST: Delay complete, now subscribing...");
 
             // Start streaming session with enhanced orchestrator
             // This will handle Redis PubSub subscription internally
