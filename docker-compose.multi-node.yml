@@ -166,6 +166,9 @@ services:
       - SPRING_KAFKA_ENABLED=true
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       
+      # AI Service Configuration - Use NGINX load balancer
+      - AI_SERVICE_URL=http://nginx-lb:80/ai
+      
       # Security
       - JWT_SECRET=${JWT_SECRET:-default-secret-key-change-in-production-minimum-256-bits-required}
       - JWT_EXPIRATION_MS=3600000
@@ -215,6 +218,9 @@ services:
       # Kafka Configuration
       - SPRING_KAFKA_ENABLED=true
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      
+      # AI Service Configuration - Use NGINX load balancer
+      - AI_SERVICE_URL=http://nginx-lb:80/ai
       
       # Security
       - JWT_SECRET=${JWT_SECRET:-default-secret-key-change-in-production-minimum-256-bits-required}
@@ -266,6 +272,9 @@ services:
       - SPRING_KAFKA_ENABLED=true
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       
+      # AI Service Configuration - Use NGINX load balancer
+      - AI_SERVICE_URL=http://nginx-lb:80/ai
+      
       # Security
       - JWT_SECRET=${JWT_SECRET:-default-secret-key-change-in-production-minimum-256-bits-required}
       - JWT_EXPIRATION_MS=3600000
@@ -303,7 +312,7 @@ services:
   # Load Balancer
   # ==========================================
   
-  # NGINX Load Balancer for WebSocket Servers
+  # NGINX Load Balancer for WebSocket Servers and AI Services
   nginx-lb:
     image: nginx:alpine
     container_name: demo-nginx-lb
@@ -312,9 +321,9 @@ services:
     volumes:
       - ./nginx-lb.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - java-websocket-1
-      - java-websocket-2
-      - java-websocket-3
+      - python-ai-1
+      - python-ai-2
+      - python-ai-3
     restart: unless-stopped
     networks:
       - app-network
