@@ -179,7 +179,9 @@ class ChatService:
     def __init__(self):
         self.ai_service = AIService()
         # Track active streaming tasks for cancellation
-        self.active_tasks = {}  # session_id -> {"task": Task, "message_id": str, "cancelled": bool}
+        self.active_tasks = {}  # session_id -> {"message_id": str, "cancelled": bool}
+        # Track recently completed/cancelled messages to handle duplicate cancel requests
+        self.completed_messages = {}  # session_id -> {"message_id": str, "completed_at": timestamp}
     
     async def process_user_message(self, session_id: str, user_id: str, 
                                    message_content: str) -> str:
@@ -316,9 +318,23 @@ class ChatService:
             redis_client.publish_message(session_id, error_message)
             redis_client.save_to_history(session_id, error_message)
         finally:
-            # Clean up tracking
+            # Clean up tracking and mark as completed
             if session_id in self.active_tasks:
                 del self.active_tasks[session_id]
+            
+            # Track as completed for 30 seconds to handle duplicate cancel requests
+            import time
+            self.completed_messages[session_id] = {
+                "message_id": message_id,
+                "completed_at": time.time()
+            }
+            
+            # Clean up old completed messages (older than 30 seconds)
+            current_time = time.time()
+            expired_sessions = [sid for sid, info in self.completed_messages.items() 
+                              if current_time - info["completed_at"] > 30]
+            for sid in expired_sessions:
+                del self.completed_messages[sid]
         
         return message_id
     
@@ -327,18 +343,31 @@ class ChatService:
         Cancel an active streaming task
         Returns True if cancellation was successful
         """
+        # Check if there's an active task
         if session_id in self.active_tasks:
             task_info = self.active_tasks[session_id]
             if task_info["message_id"] == message_id:
-                task_info["cancelled"] = True
-                logger.info(f"Marked streaming for cancellation: session={session_id}, msg_id={message_id}")
-                return True
+                # Check if already marked as cancelled
+                if task_info.get("cancelled", False):
+                    logger.info(f"Streaming already marked for cancellation: session={session_id}, msg_id={message_id}")
+                    return True  # Return True to indicate it's being handled
+                else:
+                    task_info["cancelled"] = True
+                    logger.info(f"Marked streaming for cancellation: session={session_id}, msg_id={message_id}")
+                    return True
             else:
                 logger.warning(f"Message ID mismatch for cancellation: expected={task_info['message_id']}, got={message_id}")
                 return False
-        else:
-            logger.warning(f"No active streaming task found for session={session_id}")
-            return False
+        
+        # Check if this message was recently completed
+        if session_id in self.completed_messages:
+            completed_info = self.completed_messages[session_id]
+            if completed_info["message_id"] == message_id:
+                logger.info(f"Message already completed: session={session_id}, msg_id={message_id}")
+                return True  # Return True to indicate the message is no longer streaming
+        
+        logger.warning(f"No active or recent streaming task found for session={session_id}, msg_id={message_id}")
+        return False
 
 
 # Global chat service instance
