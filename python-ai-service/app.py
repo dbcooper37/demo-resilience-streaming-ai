@@ -145,18 +145,27 @@ async def chat(request: ChatRequest):
             message_content=request.message
         )
         
+        # Generate AI response message_id before starting stream
+        # This allows frontend to track and cancel
+        ai_message_id = chat_service.prepare_streaming_response(
+            session_id=request.session_id,
+            user_id=request.user_id
+        )
+        
         # Start streaming AI response asynchronously (fire and forget)
         asyncio.create_task(
-            chat_service.stream_ai_response(
+            chat_service.stream_ai_response_with_id(
                 session_id=request.session_id,
                 user_id=request.user_id,
-                user_message=request.message
+                user_message=request.message,
+                message_id=ai_message_id
             )
         )
         
+        # Return AI message_id so frontend can track for cancellation
         return ChatResponse(
             status="streaming",
-            message_id=user_message_id,
+            message_id=ai_message_id,  # AI response message_id, not user message
             session_id=request.session_id,
             message="AI is generating response..."
         )
