@@ -55,7 +55,7 @@ public class RedisStreamCache {
         try {
             Map<String, String> sessionData = new HashMap<>();
             sessionData.put("sessionId", session.getSessionId());
-            sessionData.put("messageId", session.getMessageId());
+            sessionData.put("messageId", session.getMessageId() != null ? session.getMessageId() : "");
             sessionData.put("userId", session.getUserId());
             sessionData.put("conversationId", session.getConversationId() != null ? session.getConversationId() : "");
             sessionData.put("status", session.getStatus().name());
@@ -70,6 +70,21 @@ public class RedisStreamCache {
         } catch (Exception e) {
             log.error("Failed to initialize stream in cache", e);
             throw new RuntimeException("Stream initialization failed", e);
+        }
+    }
+
+    /**
+     * Update message id stored for a streaming session.
+     */
+    public void updateSessionMessageId(String sessionId, String messageId) {
+        String key = SESSION_KEY.replace("{sessionId}", sessionId);
+
+        try {
+            redisTemplate.opsForHash().put(key, "messageId", messageId != null ? messageId : "");
+            redisTemplate.expire(key, SESSION_TTL);
+            log.debug("Updated session messageId in cache: sessionId={}, messageId={}", sessionId, messageId);
+        } catch (Exception e) {
+            log.error("Failed to update session messageId: sessionId={}", sessionId, e);
         }
     }
 
@@ -255,9 +270,14 @@ public class RedisStreamCache {
                 return Optional.empty();
             }
 
+            String messageId = (String) sessionData.get("messageId");
+            if (messageId != null && messageId.isBlank()) {
+                messageId = null;
+            }
+
             ChatSession.ChatSessionBuilder builder = ChatSession.builder()
                     .sessionId((String) sessionData.get("sessionId"))
-                    .messageId((String) sessionData.get("messageId"))
+                    .messageId(messageId)
                     .userId((String) sessionData.get("userId"))
                     .conversationId((String) sessionData.get("conversationId"))
                     .status(ChatSession.SessionStatus.valueOf((String) sessionData.get("status")))

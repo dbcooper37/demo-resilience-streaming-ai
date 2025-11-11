@@ -55,9 +55,64 @@ public class AiServiceLoadBalancer {
         if (aiServiceUrls.isEmpty()) {
             throw new IllegalStateException("No AI service URLs configured");
         }
-        
-        int index = Math.abs(currentIndex.getAndIncrement() % aiServiceUrls.size());
+
+        int index = Math.floorMod(currentIndex.getAndIncrement(), aiServiceUrls.size());
         return aiServiceUrls.get(index);
+    }
+
+    /**
+     * Compute sticky node for a session using consistent hashing.
+     */
+    private String getStickyUrlForSession(String sessionId) {
+        if (aiServiceUrls.isEmpty()) {
+            throw new IllegalStateException("No AI service URLs configured");
+        }
+        int index = Math.floorMod(sessionId.hashCode(), aiServiceUrls.size());
+        return aiServiceUrls.get(index);
+    }
+
+    /**
+     * Extract session id from request payload if present.
+     */
+    @SuppressWarnings("unchecked")
+    private String extractSessionId(Object body) {
+        if (body instanceof Map<?, ?> map) {
+            Object sessionId = map.get("session_id");
+            if (sessionId == null) {
+                sessionId = map.get("sessionId");
+            }
+            if (sessionId instanceof String str && !str.isBlank()) {
+                return str;
+            }
+        }
+        return null;
+    }
+
+    private List<String> buildCandidateUrls(String sessionId) {
+        if (aiServiceUrls.isEmpty()) {
+            throw new IllegalStateException("No AI service URLs configured");
+        }
+
+        List<String> candidates = new ArrayList<>();
+
+        if (sessionId != null && !sessionId.isBlank()) {
+            String stickyUrl = getStickyUrlForSession(sessionId);
+            candidates.add(stickyUrl);
+
+            // Add remaining nodes as fallbacks
+            for (String url : aiServiceUrls) {
+                if (!url.equals(stickyUrl)) {
+                    candidates.add(url);
+                }
+            }
+        } else {
+            // No session affinity needed, fall back to round-robin
+            for (int i = 0; i < aiServiceUrls.size(); i++) {
+                candidates.add(getNextUrl());
+            }
+        }
+
+        return candidates;
     }
 
     /**
@@ -67,11 +122,14 @@ public class AiServiceLoadBalancer {
                                           HttpMethod method, 
                                           Object body, 
                                           Class<T> responseType) {
-        int maxRetries = aiServiceUrls.size();
+        String sessionId = extractSessionId(body);
+        List<String> candidateUrls = buildCandidateUrls(sessionId);
+
+        int maxRetries = candidateUrls.size();
         Exception lastException = null;
 
         for (int attempt = 0; attempt < maxRetries; attempt++) {
-            String baseUrl = getNextUrl();
+            String baseUrl = candidateUrls.get(attempt);
             String fullUrl = baseUrl + path;
             
             try {
@@ -97,9 +155,9 @@ public class AiServiceLoadBalancer {
 
             } catch (Exception e) {
                 lastException = e;
-                log.warn("AI service request failed: url={}, attempt={}/{}, error={}", 
+                log.warn("AI service request failed: url={}, attempt={}/{}, error={}",
                         fullUrl, attempt + 1, maxRetries, e.getMessage());
-                
+
                 // Try next node
                 if (attempt < maxRetries - 1) {
                     log.info("Retrying with next AI service node...");
