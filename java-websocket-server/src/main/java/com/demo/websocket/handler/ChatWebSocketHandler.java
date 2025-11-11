@@ -36,6 +36,9 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     // Legacy sessionId -> List of WebSocketSessions (for backward compatibility)
     private final Map<String, ConcurrentHashMap<String, WebSocketSession>> sessionMap = new ConcurrentHashMap<>();
+    
+    // Per-session locks for synchronized WebSocket writes to prevent TEXT_PARTIAL_WRITING error
+    private final Map<String, Object> sessionLocks = new ConcurrentHashMap<>();
 
     public ChatWebSocketHandler(ObjectMapper objectMapper,
                                  SessionManager sessionManager,
@@ -152,7 +155,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                         return;
 
                     case "ping":
-                        wsSession.sendMessage(new TextMessage("{\"type\":\"pong\"}"));
+                        sendMessageSynchronized(wsSession, "{\"type\":\"pong\"}");
                         return;
 
                     default:
@@ -161,7 +164,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             } catch (Exception e) {
                 // Not JSON or parsing failed, handle as plain text
                 if ("ping".equals(payload)) {
-                    wsSession.sendMessage(new TextMessage("pong"));
+                    sendMessageSynchronized(wsSession, "pong");
                 }
             }
 
@@ -237,7 +240,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private void handleHeartbeat(WebSocketSession wsSession, String sessionId) {
         sessionManager.updateHeartbeat(sessionId);
         try {
-            wsSession.sendMessage(new TextMessage("{\"type\":\"heartbeat_ack\"}"));
+            sendMessageSynchronized(wsSession, "{\"type\":\"heartbeat_ack\"}");
         } catch (IOException e) {
             log.error("Failed to send heartbeat ack", e);
         }
@@ -273,6 +276,9 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         if (sessionId != null) {
             sessionManager.unregisterSession(sessionId);
         }
+        
+        // Clean up session lock
+        sessionLocks.remove(wsSession.getId());
     }
 
     @Override
@@ -299,7 +305,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                     "timestamp", Instant.now().toString()
             ));
 
-            wsSession.sendMessage(new TextMessage(payload));
+            sendMessageSynchronized(wsSession, payload);
             log.debug("Sent welcome message to session: {}", sessionId);
 
         } catch (Exception e) {
@@ -318,7 +324,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                     "type", "history",
                     "messages", history
                 ));
-                wsSession.sendMessage(new TextMessage(historyJson));
+                sendMessageSynchronized(wsSession, historyJson);
                 log.info("Sent {} history messages to session {}", history.size(), sessionId);
             }
         } catch (Exception e) {
@@ -365,7 +371,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             log.info("Payload size: {} bytes", payload.length());
             log.info("Payload (first 200 chars): {}", payload.substring(0, Math.min(200, payload.length())));
 
-            wsSession.sendMessage(new TextMessage(payload));
+            sendMessageSynchronized(wsSession, payload);
 
             log.info("=== MESSAGE SENT TO WEBSOCKET SUCCESSFULLY ===");
 
@@ -401,7 +407,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             log.info("Sending complete message to session {}: messageId={}", 
                     wsSession.getId(), message.getId());
             
-            wsSession.sendMessage(new TextMessage(payload));
+            sendMessageSynchronized(wsSession, payload);
 
         } catch (IOException e) {
             log.error("Failed to send complete message", e);
@@ -416,7 +422,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                     "chunksRecovered", chunksRecovered
             ));
 
-            wsSession.sendMessage(new TextMessage(payload));
+            sendMessageSynchronized(wsSession, payload);
 
         } catch (IOException e) {
             log.error("Failed to send recovery status", e);
@@ -431,9 +437,32 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                     "timestamp", Instant.now().toString()
             ));
 
-            wsSession.sendMessage(new TextMessage(payload));
+            sendMessageSynchronized(wsSession, payload);
         } catch (IOException e) {
             log.error("Failed to send error message", e);
+        }
+    }
+    
+    /**
+     * Synchronized message sending to prevent TEXT_PARTIAL_WRITING error
+     * This ensures only one thread can write to a WebSocket session at a time
+     */
+    private void sendMessageSynchronized(WebSocketSession wsSession, String payload) throws IOException {
+        if (wsSession == null || !wsSession.isOpen()) {
+            log.warn("Cannot send message: WebSocket session is null or closed");
+            return;
+        }
+        
+        // Get or create lock for this WebSocket session
+        Object lock = sessionLocks.computeIfAbsent(wsSession.getId(), k -> new Object());
+        
+        synchronized (lock) {
+            try {
+                wsSession.sendMessage(new TextMessage(payload));
+            } catch (IOException e) {
+                log.error("Failed to send message to WebSocket {}: {}", wsSession.getId(), e.getMessage());
+                throw e;
+            }
         }
     }
 
@@ -467,7 +496,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             try {
                 if (session.isOpen()) {
                     log.info("Sending message to WebSocket session: {}", session.getId());
-                    session.sendMessage(new TextMessage(messageJson));
+                    sendMessageSynchronized(session, messageJson);
                 } else {
                     log.warn("WebSocket session {} is not open", session.getId());
                 }
@@ -499,7 +528,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         sessions.values().forEach(ws -> {
             try {
                 if (ws.isOpen()) {
-                    ws.sendMessage(new TextMessage(payload));
+                    sendMessageSynchronized(ws, payload);
                 }
             } catch (IOException ex) {
                 log.error("Failed to send error to WS {}", ws.getId(), ex);
