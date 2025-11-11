@@ -18,11 +18,125 @@ class AIService:
     """AI response generation service"""
     
     SAMPLE_RESPONSES = [
-        "Xin chào! Tôi là AI assistant. Tôi có thể giúp gì cho bạn hôm nay?",
-        "Đây là một ví dụ về streaming response. Mỗi chunk sẽ được gửi qua Redis PubSub.",
-        "Khi bạn reload trang, bạn sẽ thấy toàn bộ lịch sử chat cũ và tiếp tục nhận streaming mới.",
-        "Hệ thống này sử dụng Redis để lưu trữ lịch sử và PubSub để streaming real-time.",
-        "Tôi hiểu câu hỏi của bạn. Đây là câu trả lời được tạo bởi AI service.",
+        """Xin chào! Tôi là AI assistant được xây dựng với công nghệ streaming hiện đại. Tôi có thể giúp bạn trả lời các câu hỏi, giải thích khái niệm phức tạp, viết code, phân tích dữ liệu và nhiều thứ khác. 
+
+Hệ thống của tôi sử dụng kiến trúc microservices với WebSocket để giao tiếp real-time, Redis để caching và message queue, và Kafka để xử lý event-driven architecture. Điều này đảm bảo response của tôi được stream một cách mượt mà và có thể scale tốt khi có nhiều người dùng đồng thời.
+
+Bạn có câu hỏi gì cho tôi hôm nay không?""",
+
+        """Đây là một ví dụ chi tiết về streaming response trong hệ thống phân tán. Khi bạn gửi một tin nhắn, nó sẽ đi qua nhiều layer:
+
+1. **Frontend Layer**: Tin nhắn được gửi từ React app qua WebSocket connection tới Java WebSocket Server
+2. **API Gateway Layer**: Java server nhận request, validate và forward tới Python AI Service thông qua REST API
+3. **AI Processing Layer**: Python service xử lý và tạo response theo dạng streaming
+4. **Message Queue Layer**: Mỗi chunk được publish lên Redis PubSub channel
+5. **Real-time Distribution**: Java WebSocket Handler subscribe channel đó và forward chunks về client
+
+Toàn bộ quá trình này diễn ra trong vài milliseconds, tạo trải nghiệm real-time tuyệt vời cho người dùng. Hệ thống còn có khả năng recover khi connection bị gián đoạn, lưu lịch sử chat vào Redis để bạn có thể reload trang bất cứ lúc nào mà không mất dữ liệu.""",
+
+        """Một tính năng quan trọng của hệ thống này là khả năng phục hồi (resilience) và persistence. Khi bạn reload trang web trong khi AI đang trả lời, điều thú vị sẽ xảy ra:
+
+**Trước khi reload:**
+- Tất cả messages đang hiển thị được lưu trong state của React component
+- AI đang streaming response, mỗi chunk được cache trong Redis Stream
+- WebSocket connection đang active và nhận real-time updates
+
+**Trong quá trình reload:**
+- Browser đóng WebSocket connection cũ
+- AI service vẫn tiếp tục generate và lưu response vào Redis
+- Không có data loss vì mọi thứ đều được persist
+
+**Sau khi reload:**
+- React app khởi động lại và tạo WebSocket connection mới
+- Server gửi toàn bộ lịch sử chat từ Redis (bao gồm cả message đang streaming)
+- Nếu AI vẫn đang generate, bạn sẽ tiếp tục thấy streaming từ vị trí hiện tại
+- UI hiển thị seamlessly như chưa hề reload!
+
+Đây là implementation của offline-first architecture pattern kết hợp với event sourcing.""",
+
+        """Redis đóng vai trò trung tâm trong kiến trúc của hệ thống này với nhiều use cases khác nhau:
+
+**1. Redis Streams cho Message Queue:**
+- Mỗi session có một stream riêng (key: `stream:session:{session_id}`)
+- Chunks được append vào stream với XADD command
+- Consumer groups đảm bảo message không bị miss
+- Có TTL để tự động cleanup old data
+
+**2. Redis PubSub cho Real-time Broadcasting:**
+- Channel: `chat:session:{session_id}`
+- Publisher (Python AI) push chunks vào channel
+- Subscriber (Java WebSocket) forward đến clients
+- Low latency, high throughput
+
+**3. Redis Hash cho Session Storage:**
+- Lưu metadata: user_id, start_time, last_activity
+- Track active streaming messages
+- Store conversation context
+
+**4. Redis Sorted Set cho History:**
+- Messages được indexed theo timestamp
+- Query efficient với ZRANGE commands
+- Support pagination cho chat history dài
+
+Kiến trúc này cho phép system scale horizontally bằng cách add thêm Redis nodes (cluster mode) và load balance across multiple backend instances.""",
+
+        """Cảm ơn bạn đã hỏi! Để trả lời câu hỏi này một cách đầy đủ, tôi sẽ phân tích từ nhiều góc độ khác nhau:
+
+**Về mặt kỹ thuật:** Hệ thống được thiết kế theo microservices pattern với separation of concerns rõ ràng. Java backend xử lý WebSocket connections và orchestration, Python service focus vào AI logic, Redis làm message broker và cache layer. Điều này tạo ra loose coupling giữa các components.
+
+**Về mặt performance:** Với streaming approach, user thấy response ngay lập tức thay vì phải chờ toàn bộ answer được generate xong. Time to first byte (TTFB) rất thấp. Concurrent users được handle tốt nhờ async/await pattern trong cả Java (CompletableFuture) và Python (asyncio).
+
+**Về mặt scalability:** System có thể scale từng component độc lập. Cần xử lý nhiều AI requests hơn? Scale Python service. Cần handle nhiều WebSocket connections hơn? Scale Java backend. Redis có thể chạy cluster mode với sharding.
+
+**Về mặt reliability:** Multiple layers of fault tolerance: connection recovery, message retry mechanism, graceful degradation. Monitoring với Prometheus và Grafana dashboard để track metrics real-time.
+
+Nếu bạn cần giải thích chi tiết về bất kỳ phần nào, cứ hỏi tôi nhé!""",
+
+        """Tôi rất vui được giải thích về workflow chi tiết của một request trong hệ thống streaming chat này:
+
+**Phase 1: Request Initiation (Frontend → Java Backend)**
+- User nhập message và click Send
+- React app tạo ChatMessage object với unique message_id (UUID)
+- POST request được gửi tới `/api/chat` endpoint của Java backend
+- Request body: `{session_id, message, user_id}`
+
+**Phase 2: Request Validation & Orchestration (Java Backend)**
+- ChatController nhận request
+- Validate input: check message không empty, session_id hợp lệ
+- RateLimitService check user không spam
+- SessionManager tạo hoặc retrieve session
+- ChatOrchestrator được invoke để handle business logic
+
+**Phase 3: AI Service Invocation (Java → Python)**
+- Java backend gọi Python AI service qua REST API
+- Endpoint: `POST /api/chat/streaming`
+- Python service nhận request và bắt đầu generate response
+
+**Phase 4: Streaming Generation (Python AI Service)**
+- AIService.select_response() chọn appropriate response
+- generate_streaming_response() split text thành words
+- Mỗi word được yield với delay nhỏ (simulate AI thinking)
+- Chunks được accumulate để tạo full content
+
+**Phase 5: Message Publishing (Python → Redis)**
+- Mỗi chunk được publish lên Redis PubSub channel
+- Channel name: `chat:session:{session_id}`
+- Message format: JSON with metadata (message_id, chunk, content, is_complete)
+- Simultaneously save to Redis Stream for persistence
+
+**Phase 6: Real-time Distribution (Redis → Java → Client)**
+- Java WebSocket Handler subscribe Redis channel
+- Nhận chunks từ Redis PubSub
+- Forward chunks tới WebSocket clients
+- Client browser nhận và render từng chunk real-time
+
+**Phase 7: Completion & Finalization**
+- Last chunk có flag `is_complete: true`
+- Final message được save vào conversation history
+- Metrics được ghi lại (duration, chunk count, etc.)
+- Resources được cleanup
+
+Toàn bộ flow này diễn ra trong vài giây với latency rất thấp nhờ async processing!""",
     ]
     
     @classmethod
@@ -47,10 +161,12 @@ class AIService:
         
         if "streaming" in message_lower:
             return cls.SAMPLE_RESPONSES[1]
-        elif "reload" in message_lower or "history" in message_lower:
+        elif "reload" in message_lower or "history" in message_lower or "persistence" in message_lower:
             return cls.SAMPLE_RESPONSES[2]
         elif "redis" in message_lower or "pubsub" in message_lower:
             return cls.SAMPLE_RESPONSES[3]
+        elif "workflow" in message_lower or "flow" in message_lower or "process" in message_lower:
+            return cls.SAMPLE_RESPONSES[5]  # Detailed workflow explanation
         elif any(word in message_lower for word in ["how", "what", "why", "when", "where"]):
             return cls.SAMPLE_RESPONSES[4]
         else:

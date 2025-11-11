@@ -235,13 +235,28 @@ async def cancel_message(request: CancelRequest):
     Stops the AI from generating more content for the specified message.
     """
     try:
+        logger.info(f"Cancel request received: session_id={request.session_id}, message_id={request.message_id}")
+        logger.debug(f"Active tasks: {list(chat_service.active_tasks.keys())}")
+        
         success = chat_service.cancel_streaming(request.session_id, request.message_id)
         
         if not success:
-            return {
-                "status": "not_found",
-                "message": "No active streaming task found for this session/message"
-            }
+            # Provide more detailed information about why cancellation failed
+            if request.session_id in chat_service.active_tasks:
+                active_msg_id = chat_service.active_tasks[request.session_id].get("message_id")
+                logger.warning(f"Message ID mismatch: requested={request.message_id}, active={active_msg_id}")
+                return {
+                    "status": "not_found",
+                    "message": "Message ID mismatch - the streaming message may have already completed",
+                    "detail": f"Active message ID: {active_msg_id}, requested: {request.message_id}"
+                }
+            else:
+                logger.warning(f"No active task for session={request.session_id}")
+                return {
+                    "status": "not_found",
+                    "message": "No active streaming task found - the message may have already completed",
+                    "detail": f"Session {request.session_id} has no active streaming task"
+                }
         
         return {
             "status": "cancelled",

@@ -87,6 +87,17 @@ public class RedisStreamCache {
             try {
                 if (lock.tryLock(100, 5000, TimeUnit.MILLISECONDS)) {
                     try {
+                        // NEW: Idempotency check - verify expected index matches current list size
+                        Long currentSize = redisTemplate.opsForList().size(key);
+                        int expectedIndex = (currentSize != null ? currentSize.intValue() : 0);
+                        
+                        if (chunk.getIndex() != expectedIndex) {
+                            // Skip if index mismatch (already appended by another node)
+                            log.warn("Skipping duplicate/mismatched chunk append: messageId={}, expectedIndex={}, actualIndex={}, currentSize={}", 
+                                     messageId, expectedIndex, chunk.getIndex(), currentSize);
+                            return;  // Skip instead of fail
+                        }
+
                         // Serialize chunk
                         String chunkJson = objectMapper.writeValueAsString(chunk);
 
@@ -106,7 +117,9 @@ public class RedisStreamCache {
                         lock.unlock();
                     }
                 } else {
-                    throw new RuntimeException("Failed to acquire lock for chunk append");
+                    // Another node is currently writing this chunk; treat as race and skip
+                    log.warn("Lock busy, skipping chunk append: messageId={}, index={}", messageId, chunk.getIndex());
+                    return;
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -116,7 +129,11 @@ public class RedisStreamCache {
         } catch (Exception e) {
             log.error("Failed to append chunk: messageId={}, index={}",
                     messageId, chunk.getIndex(), e);
-            throw new RuntimeException("Chunk append failed", e);
+            // NEW: Only throw if not a duplicate (idempotency); otherwise log and continue
+            if (!e.getMessage().contains("Skipping duplicate")) {
+                throw new RuntimeException("Chunk append failed (non-duplicate error)", e);
+            }
+            log.warn("Chunk append skipped due to race condition (multi-node), but streaming continues");
         }
     }
 

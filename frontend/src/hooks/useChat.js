@@ -68,7 +68,25 @@ export const useChat = () => {
   }, []);
 
   const loadHistory = useCallback((historyMessages) => {
-    setMessages(historyMessages);
+    // Merge history with existing messages to avoid losing any new messages
+    // that might have arrived during loading
+    setMessages((prev) => {
+      if (prev.length === 0) {
+        // No existing messages, just load history
+        return historyMessages;
+      }
+      
+      // Merge: keep existing messages and add history messages that don't exist
+      const existingIds = new Set(prev.map(m => m.message_id));
+      const newMessages = historyMessages.filter(m => !existingIds.has(m.message_id));
+      
+      // Combine and sort by timestamp
+      const combined = [...prev, ...newMessages].sort((a, b) => 
+        (a.timestamp || 0) - (b.timestamp || 0)
+      );
+      
+      return combined;
+    });
   }, []);
 
   const clearMessages = useCallback(() => {

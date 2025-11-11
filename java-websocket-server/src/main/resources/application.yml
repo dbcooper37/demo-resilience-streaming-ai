@@ -44,13 +44,17 @@ spring:
   
   # Kafka Configuration
   kafka:
-    enabled: ${KAFKA_ENABLED:false}
+    enabled: ${SPRING_KAFKA_ENABLED:true}  # Changed: Use SPRING_KAFKA_ENABLED and default to true for Docker
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
       group-id: chat-service
       auto-offset-reset: earliest
       enable-auto-commit: false
       max-poll-records: 100  # PoC: Reduced from 500
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.apache.kafka.common.serialization.JsonDeserializer
+        spring.json.trusted.packages: "*"
     producer:
       acks: all
       retries: 3
@@ -65,7 +69,7 @@ NODE_ID: ${NODE_ID:node-default}
 # AI Service Configuration
 ai:
   service:
-    url: ${AI_SERVICE_URL:http://python-ai-service:8000}
+    url: ${AI_SERVICE_URL:http://python-ai:8000}
 
 # Security Configuration
 security:
@@ -110,6 +114,7 @@ logging:
     com.demo.websocket: ${LOG_LEVEL:INFO}
     com.demo.websocket.service.MetricsService: DEBUG  # Show [METRIC] logs
     org.springframework.web.socket: INFO
-    org.springframework.kafka: ${KAFKA_LOG_LEVEL:WARN}
+    org.springframework.kafka: INFO  # Changed: INFO to see publish/send events
+    com.demo.websocket.service.EventPublisher: DEBUG  # Added: Debug Kafka publishing
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [${NODE_ID:-poc}] [%thread] %-5level %logger{36} - %msg%n"

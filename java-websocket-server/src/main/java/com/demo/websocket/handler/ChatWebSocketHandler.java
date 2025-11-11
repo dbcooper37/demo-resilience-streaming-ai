@@ -81,10 +81,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             // Register session with distributed coordination
             sessionManager.registerSession(sessionId, wsSession, userId);
 
-            // Subscribe to Redis PubSub for this session (legacy support)
-            // NOTE: Commented out to avoid duplicate messages with ChatOrchestrator
-            // ChatOrchestrator handles both legacy and enhanced streaming
-            // redisMessageListener.subscribe(sessionId, this);
+            // Subscribe to fan-out channels for real-time streaming (multi-node)
+            redisMessageListener.subscribe(sessionId, this);
 
             log.info("WebSocket connected: wsId={}, sessionId={}, userId={}", 
                     wsSession.getId(), sessionId, userId);
@@ -481,6 +479,32 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
         log.info("Broadcasted message to {} WebSocket sessions for chat session {}",
                  sessions.size(), sessionId);
+    }
+
+    public void broadcastErrorToSession(String sessionId, String error) {
+        ConcurrentHashMap<String, WebSocketSession> sessions = sessionMap.get(sessionId);
+        if (sessions == null || sessions.isEmpty()) {
+            return;
+        }
+        String payload;
+        try {
+            payload = objectMapper.writeValueAsString(Map.of(
+                    "type", "error",
+                    "error", error
+            ));
+        } catch (Exception e) {
+            log.error("Failed to serialize error payload", e);
+            return;
+        }
+        sessions.values().forEach(ws -> {
+            try {
+                if (ws.isOpen()) {
+                    ws.sendMessage(new TextMessage(payload));
+                }
+            } catch (IOException ex) {
+                log.error("Failed to send error to WS {}", ws.getId(), ex);
+            }
+        });
     }
 
     /**

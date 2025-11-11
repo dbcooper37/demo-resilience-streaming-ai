@@ -22,7 +22,7 @@ public class ChatController {
 
     private final RestTemplate restTemplate;
     
-    @Value("${ai.service.url:http://python-ai-service:8000}")
+    @Value("${ai.service.url:http://python-ai:8000}")
     private String aiServiceUrl;
 
     public ChatController() {

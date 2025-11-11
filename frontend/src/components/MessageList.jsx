@@ -43,7 +43,7 @@ const MessageList = ({ messages, isLoading }) => {
           console.warn('Skipping invalid message at index:', index, msg);
           return null;
         }
-        return <Message key={`${msg.message_id}-${index}`} message={msg} />;
+        return <Message key={msg.message_id} message={msg} />;
       })}
       <div ref={messagesEndRef} />
     </div>

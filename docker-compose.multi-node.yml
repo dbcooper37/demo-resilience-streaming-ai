@@ -135,8 +135,7 @@ services:
       - NODE_ID=ai-node-3
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     depends_on:
-      redis:
-        condition: service_healthy
+      - redis
     restart: unless-stopped
     networks:
       - app-network
@@ -189,10 +188,8 @@ services:
       # JVM Settings
       - JAVA_OPTS=-Xms512m -Xmx1024m -XX:+UseG1GC
     depends_on:
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
+      - redis
+      - kafka
     restart: unless-stopped
     networks:
       - app-network
@@ -241,10 +238,8 @@ services:
       # JVM Settings
       - JAVA_OPTS=-Xms512m -Xmx1024m -XX:+UseG1GC
     depends_on:
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
+      - redis
+      - kafka
     restart: unless-stopped
     networks:
       - app-network
@@ -293,10 +288,8 @@ services:
       # JVM Settings
       - JAVA_OPTS=-Xms512m -Xmx1024m -XX:+UseG1GC
     depends_on:
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
+      - redis
+      - kafka
     restart: unless-stopped
     networks:
       - app-network

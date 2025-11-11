@@ -54,7 +54,7 @@ public class KafkaConfig {
         // Performance tuning
         config.put(ProducerConfig.BATCH_SIZE_CONFIG, 16384); // 16KB batches
         config.put(ProducerConfig.LINGER_MS_CONFIG, 10); // Wait 10ms for batching
-        config.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "snappy");
+        config.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "gzip");  // Changed: Use gzip instead of snappy for Docker compatibility
         config.put(ProducerConfig.BUFFER_MEMORY_CONFIG, 33554432); // 32MB buffer
         
         // Reliability - exactly-once semantics
