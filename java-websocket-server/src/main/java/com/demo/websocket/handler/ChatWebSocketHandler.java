@@ -97,25 +97,21 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             // Send welcome message
             sendWelcomeMessage(wsSession, sessionId);
 
-            // Send chat history
-            sendChatHistory(wsSession, sessionId);
-            
-            // REPRODUCE RACE CONDITION: Add delay to expand risk window
-            // This simulates the gap between reading history (Step 1) and subscribing (Step 3)
-            // During this window, Python AI Service might publish chunk 7 which will be MISSED
-            log.warn("⚠️ RACE CONDITION TEST: Sleeping 2 seconds before subscribe...");
-            log.warn("⚠️ If Python publishes chunk 7 during this window, it will be LOST!");
-            try {
-                Thread.sleep(2000);  // 2 second delay to expand risk window
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            log.warn("⚠️ RACE CONDITION TEST: Delay complete, now subscribing...");
-
-            // Start streaming session with enhanced orchestrator
-            // This will handle Redis PubSub subscription internally
+            // FIX RACE CONDITION: Subscribe-First Pattern
+            // STEP 1: Subscribe to PubSub FIRST (before reading history)
+            // This ensures we don't miss any messages published during history read
+            log.info("🔧 FIX: Subscribing to PubSub BEFORE reading history");
             chatOrchestrator.startStreamingSession(sessionId, userId,
                     new WebSocketStreamCallback(wsSession));
+            
+            // STEP 2: Then read and send chat history
+            // Note: History may contain chunks that we'll also receive via PubSub (duplicates)
+            // The client will deduplicate based on message_id
+            log.info("🔧 FIX: Now reading history (may have duplicates, client will deduplicate)");
+            sendChatHistory(wsSession, sessionId);
+            
+            // Result: No data loss! May have duplicates but that's acceptable
+            // Duplicates will be filtered by client based on message_id
 
         } catch (SecurityException e) {
             log.error("Security violation during connection: sessionId={}", sessionId, e);
